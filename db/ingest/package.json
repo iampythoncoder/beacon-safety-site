@@ -1,0 +1,14 @@
+{
+  "name": "launchlab-ingest",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "ingest:competitions": "node ingest-competitions.js",
+    "ingest:pitches": "node ingest-pitches.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "csv-parse": "^5.5.6",
+    "dotenv": "^16.4.5"
+  }
+}

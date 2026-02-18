@@ -1,0 +1,15 @@
+{
+  "name": "launchlab",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"npm --prefix /Users/saatviksantosh/Documents/New\\ project/api run dev\" \"npm --prefix /Users/saatviksantosh/Documents/New\\ project/web run dev\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "tsx": "^4.16.2"
+  },
+  "dependencies": {
+    "next": "^16.2.0-canary.32",
+    "@supabase/supabase-js": "^2.45.4"
+  }
+}

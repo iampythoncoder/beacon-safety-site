@@ -1,0 +1,27 @@
+# deps
+node_modules/
+**/node_modules/
+
+# next build output
+.next/
+**/.next/
+out/
+
+# env
+.env
+.env.local
+.env.*.local
+api/.env
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
