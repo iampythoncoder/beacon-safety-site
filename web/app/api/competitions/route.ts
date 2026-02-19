@@ -5,7 +5,7 @@ import { buildFallbackCompetitions } from "../../../lib/opportunities";
 
 export const runtime = "nodejs";
 
-const fallbackCompetitions = buildFallbackCompetitions(420);
+const fallbackCompetitions = buildFallbackCompetitions(520);
 const STOP_WORDS = new Set([
   "the",
   "and",
@@ -62,6 +62,76 @@ function mergeWithFallback(primary: any[], fallback: any[], minCount = 260) {
     if (merged.length >= minCount) break;
   }
   return merged;
+}
+
+function normalizeName(name: unknown) {
+  return String(name || "")
+    .toLowerCase()
+    .replace(/\s+(national|regional|global|virtual)\s+(spring|summer|fall|winter)\s+20\d{2}$/i, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function qualityScore(item: any) {
+  let score = 0;
+  if (item.application_link) score += 2;
+  if (item.description || item.notes) score += 1;
+  if (item.judging_focus) score += 1;
+  if (item.deadline) score += 1;
+  if (item.data_status !== "fallback") score += 2;
+  return score;
+}
+
+function dedupeCompetitions(rows: any[]) {
+  const map = new Map<string, any>();
+  for (const row of rows) {
+    const key = `${normalizeName(row.name)}|${String(row.application_link || "").toLowerCase()}`;
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, row);
+      continue;
+    }
+    if (qualityScore(row) > qualityScore(existing)) {
+      map.set(key, row);
+    }
+  }
+  return Array.from(map.values());
+}
+
+function inferProgression(item: any) {
+  if (Array.isArray(item.progression) && item.progression.length > 0) return item.progression;
+
+  const name = String(item.name || "").toLowerCase();
+  const location = String(item.location || "").toLowerCase();
+
+  if (
+    name.includes("fbla") ||
+    name.includes("deca") ||
+    name.includes("olympiad") ||
+    name.includes("bpa") ||
+    name.includes("skillsusa")
+  ) {
+    return ["District", "State", "Nationals"];
+  }
+
+  if (name.includes("isef")) {
+    return ["School fair", "Regional fair", "State fair", "ISEF finals"];
+  }
+
+  if (name.includes("first robotics") || name.includes("first tech") || name.includes("robotics")) {
+    return ["Regional qualifier", "Super-regional", "World or nationals final"];
+  }
+
+  if (name.includes("hackathon") || name.includes("build challenge")) {
+    return ["Submission", "Technical review", "Final demo"];
+  }
+
+  if (location.includes("global")) {
+    return ["Application", "National qualifier", "Global semifinal", "Global finals"];
+  }
+
+  return ["Application", "Semifinal", "Final"];
 }
 
 function describeCompetition(item: any) {
@@ -222,9 +292,10 @@ export async function GET(req: Request) {
         throw new Error(result.error.message);
       }
     } else {
-      data = mergeWithFallback(result.data || [], fallbackCompetitions);
+      data = mergeWithFallback(result.data || [], fallbackCompetitions, 360);
     }
     if (data.length === 0) data = fallbackCompetitions.slice();
+    data = dedupeCompetitions(data);
     data = applyFilters(data, { domain, stage, location });
 
     let project: any = null;
@@ -280,6 +351,7 @@ export async function GET(req: Request) {
         requires_plan: requiresPlan === true,
         summary: item.summary || summarizeCompetition(item),
         description: item.description || item.notes || describeCompetition(item),
+        progression: inferProgression(item),
         match_breakdown: {
           domain_alignment: domainAlignment,
           stage_alignment: stageAlignment,

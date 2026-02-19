@@ -1,6 +1,15 @@
 import { useMemo, useState } from "react";
 import { Competition } from "../lib/types";
 
+function normalizeCompetitionName(name: string) {
+  return name
+    .toLowerCase()
+    .replace(/\s+(national|regional|global|virtual)\s+(spring|summer|fall|winter)\s+20\d{2}$/i, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function CompetitionTable({ competitions }: { competitions: Competition[] }) {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<"relevance" | "name">("relevance");
@@ -8,8 +17,25 @@ export function CompetitionTable({ competitions }: { competitions: Competition[]
   const [demoFilter, setDemoFilter] = useState("all");
   const [planFilter, setPlanFilter] = useState("all");
 
+  const dedupedCompetitions = useMemo(
+    () =>
+      Array.from(
+        competitions
+          .reduce((map, item) => {
+            const key = `${normalizeCompetitionName(item.name)}|${String(item.application_link || "").toLowerCase()}`;
+            const existing = map.get(key);
+            if (!existing || Number(item.relevance_score || 0) > Number(existing.relevance_score || 0)) {
+              map.set(key, item);
+            }
+            return map;
+          }, new Map<string, Competition>())
+          .values()
+      ),
+    [competitions]
+  );
+
   const filtered = useMemo(() => {
-    const base = competitions.filter((item) =>
+    const base = dedupedCompetitions.filter((item) =>
       [item.name, item.category, item.domain_focus, item.judging_focus]
         .filter(Boolean)
         .join(" ")
@@ -33,11 +59,11 @@ export function CompetitionTable({ competitions }: { competitions: Competition[]
     }
 
     return [...planFiltered].sort((a, b) => (b.relevance_score || 0) - (a.relevance_score || 0));
-  }, [competitions, search, sort, stageFilter, demoFilter, planFilter]);
+  }, [dedupedCompetitions, search, sort, stageFilter, demoFilter, planFilter]);
 
   const stageOptions = useMemo(
-    () => Array.from(new Set(competitions.map((item) => item.stage_fit).filter(Boolean))),
-    [competitions]
+    () => Array.from(new Set(dedupedCompetitions.map((item) => item.stage_fit).filter(Boolean))),
+    [dedupedCompetitions]
   );
 
   return (

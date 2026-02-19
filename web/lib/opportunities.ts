@@ -8,6 +8,7 @@ type CompetitionTemplate = {
   judging_focus: string;
   location: string;
   application_link: string;
+  progression?: string[];
 };
 
 type PitchTemplate = {
@@ -105,9 +106,221 @@ const pitchTemplates: PitchTemplate[] = [
   { name: "Social Impact Founder Roundtable", type: "Roundtable", audience: "Nonprofit leaders", requires_demo: false, requires_plan: true, how_to_apply: "Apply with impact thesis", relevance_tags: "social impact startup" }
 ];
 
-const competitionCycles = ["National", "Regional", "Global", "Virtual"];
-const competitionSeasons = ["Spring", "Summer", "Fall", "Winter"];
+const syntheticHosts = [
+  "National Student Venture League",
+  "North America Youth Innovators",
+  "Global Teen Founders Council",
+  "Future Builders Consortium",
+  "Student Enterprise Network",
+  "Rising Innovators Forum",
+  "Young Creator Alliance",
+  "NextGen Founder Circuit",
+  "Student Product Guild",
+  "Junior Startup League",
+  "Emerging Leaders Summit",
+  "Youth Impact Labs Network",
+  "Student Technology Council",
+  "Venture Scholars Collective"
+];
+
+const syntheticTracks: Array<{
+  label: string;
+  category: string;
+  domain_focus: string;
+  stage_fit: string;
+  requires_demo: boolean;
+  requires_plan: boolean;
+  judging_focus: string;
+  location: string;
+  application_link: string;
+  progression: string[];
+}> = [
+  {
+    label: "AI Builder Challenge",
+    category: "AI/ML",
+    domain_focus: "ai ml product engineering",
+    stage_fit: "MVP",
+    requires_demo: true,
+    requires_plan: true,
+    judging_focus: "Model usefulness, reliability, and founder execution",
+    location: "Global",
+    application_link: "https://www.kaggle.com/competitions",
+    progression: ["Application", "Technical review", "Semifinal build", "Global finals"]
+  },
+  {
+    label: "Climate Venture Challenge",
+    category: "Climate",
+    domain_focus: "climate sustainability clean tech",
+    stage_fit: "Prototype",
+    requires_demo: true,
+    requires_plan: true,
+    judging_focus: "Climate impact, feasibility, and implementation plan",
+    location: "Global",
+    application_link: "https://www.un.org/climatechange",
+    progression: ["Regional qualifier", "National showcase", "Global final"]
+  },
+  {
+    label: "Student SaaS Sprint",
+    category: "Startup",
+    domain_focus: "saas b2b product growth",
+    stage_fit: "Launch",
+    requires_demo: true,
+    requires_plan: true,
+    judging_focus: "Customer traction, retention, and growth strategy",
+    location: "USA",
+    application_link: "https://www.sba.gov",
+    progression: ["Submission", "Traction audit", "Pitch semifinal", "Demo-day final"]
+  },
+  {
+    label: "HealthTech Impact Challenge",
+    category: "Health",
+    domain_focus: "health biotech digital health",
+    stage_fit: "Prototype",
+    requires_demo: true,
+    requires_plan: true,
+    judging_focus: "Clinical relevance, evidence, and usability",
+    location: "Global",
+    application_link: "https://www.who.int",
+    progression: ["Application", "Clinical review", "National finalist", "International finals"]
+  },
+  {
+    label: "EdTech Product Cup",
+    category: "Education",
+    domain_focus: "edtech learning outcomes classroom",
+    stage_fit: "MVP",
+    requires_demo: true,
+    requires_plan: true,
+    judging_focus: "Learning impact, adoption, and product quality",
+    location: "Global",
+    application_link: "https://code.org",
+    progression: ["District qualifier", "State round", "National championship"]
+  },
+  {
+    label: "Robotics Venture League",
+    category: "Hardware",
+    domain_focus: "robotics hardware engineering",
+    stage_fit: "Prototype",
+    requires_demo: true,
+    requires_plan: false,
+    judging_focus: "Build quality, reliability, and execution under constraints",
+    location: "USA",
+    application_link: "https://www.firstinspires.org",
+    progression: ["Regional qualifier", "Super-regional", "National finals"]
+  },
+  {
+    label: "FinTech Youth Challenge",
+    category: "Finance",
+    domain_focus: "fintech payments risk analytics",
+    stage_fit: "MVP",
+    requires_demo: true,
+    requires_plan: true,
+    judging_focus: "Financial model quality and customer trust",
+    location: "Global",
+    application_link: "https://globalyouth.wharton.upenn.edu",
+    progression: ["Application", "Case review", "Semifinal", "Final pitch"]
+  },
+  {
+    label: "Social Impact Venture Prize",
+    category: "Social Impact",
+    domain_focus: "social impact community outcomes",
+    stage_fit: "Ideation",
+    requires_demo: false,
+    requires_plan: true,
+    judging_focus: "Impact model, execution path, and storytelling",
+    location: "Global",
+    application_link: "https://www.hultprize.org",
+    progression: ["Application", "Regional round", "National round", "Global finals"]
+  },
+  {
+    label: "Cybersecurity Student Cup",
+    category: "Technology",
+    domain_focus: "cybersecurity security engineering",
+    stage_fit: "Prototype",
+    requires_demo: true,
+    requires_plan: false,
+    judging_focus: "Security rigor, threat modeling, and product readiness",
+    location: "Global",
+    application_link: "https://www.nist.gov",
+    progression: ["Qualifier", "Technical challenge", "Final defense"]
+  },
+  {
+    label: "Civic Tech Innovation Prize",
+    category: "Technology",
+    domain_focus: "civic tech govtech public services",
+    stage_fit: "MVP",
+    requires_demo: true,
+    requires_plan: true,
+    judging_focus: "Public impact, feasibility, and usability",
+    location: "USA",
+    application_link: "https://www.challenge.gov",
+    progression: ["District", "State", "Nationals"]
+  },
+  {
+    label: "Consumer Product Launch Challenge",
+    category: "Startup",
+    domain_focus: "consumer product growth retention",
+    stage_fit: "Launch",
+    requires_demo: true,
+    requires_plan: true,
+    judging_focus: "Go-to-market execution and traction",
+    location: "North America",
+    application_link: "https://www.producthunt.com",
+    progression: ["Submission", "Top 100", "Top 20 finals"]
+  },
+  {
+    label: "DeepTech Student Grand Challenge",
+    category: "Innovation",
+    domain_focus: "deeptech engineering research",
+    stage_fit: "Research",
+    requires_demo: true,
+    requires_plan: true,
+    judging_focus: "Novelty, technical depth, and commercialization potential",
+    location: "Global",
+    application_link: "https://solve.mit.edu",
+    progression: ["Research review", "Semifinal", "Final demonstration"]
+  },
+  {
+    label: "Open Source Builder Invitational",
+    category: "Technology",
+    domain_focus: "open source developer tools infrastructure",
+    stage_fit: "MVP",
+    requires_demo: true,
+    requires_plan: false,
+    judging_focus: "Code quality, adoption, and maintainer execution",
+    location: "Global",
+    application_link: "https://github.com/events",
+    progression: ["Submission", "Maintainer shortlist", "Live final"]
+  },
+  {
+    label: "Youth Founder Pitch Masters",
+    category: "Entrepreneurship",
+    domain_focus: "startup pitch storytelling",
+    stage_fit: "Ideation",
+    requires_demo: false,
+    requires_plan: true,
+    judging_focus: "Problem clarity, business model, and pitch quality",
+    location: "USA",
+    application_link: "https://www.deca.org",
+    progression: ["District", "State", "Nationals"]
+  }
+];
+
 const pitchCycles = ["Campus", "City", "National", "Global"];
+
+function defaultProgression(template: CompetitionTemplate) {
+  const name = template.name.toLowerCase();
+  const location = template.location.toLowerCase();
+  if (name.includes("fbla") || name.includes("deca") || name.includes("olympiad")) {
+    return ["District", "State", "Nationals"];
+  }
+  if (name.includes("isef")) {
+    return ["School fair", "Regional fair", "State fair", "ISEF finals"];
+  }
+  if (location.includes("global")) {
+    return ["Application", "Regional qualifier", "Global semifinal", "Global final"];
+  }
+  return ["Application", "Semifinal", "Final"];
+}
 
 function slug(value: string) {
   return value
@@ -116,18 +329,17 @@ function slug(value: string) {
     .replace(/^-+|-+$/g, "");
 }
 
-export function buildFallbackCompetitions(target = 420) {
+export function buildFallbackCompetitions(target = 520) {
   const rows: any[] = [];
-  let index = 0;
-  while (rows.length < target) {
-    const base = competitionTemplates[index % competitionTemplates.length];
-    const cycle = competitionCycles[Math.floor(index / competitionTemplates.length) % competitionCycles.length];
-    const season = competitionSeasons[Math.floor(index / (competitionTemplates.length * competitionCycles.length)) % competitionSeasons.length];
-    const year = 2026 + Math.floor(index / (competitionTemplates.length * competitionCycles.length * competitionSeasons.length));
-    const suffix = index < competitionTemplates.length ? "" : ` ${cycle} ${season} ${year}`;
+  const seen = new Set<string>();
+
+  function pushRow(base: CompetitionTemplate, idSuffix: string) {
+    const key = slug(base.name);
+    if (seen.has(key)) return;
+    seen.add(key);
     rows.push({
-      id: `${slug(base.name)}-${index + 1}`,
-      name: `${base.name}${suffix}`,
+      id: `${key}-${idSuffix}`,
+      name: base.name,
       category: base.category,
       domain_focus: base.domain_focus,
       stage_fit: base.stage_fit,
@@ -141,10 +353,40 @@ export function buildFallbackCompetitions(target = 420) {
       application_link: base.application_link,
       location: base.location,
       notes: "Student founder-friendly track",
+      progression: base.progression || defaultProgression(base),
       data_status: "fallback"
     });
-    index += 1;
   }
+
+  competitionTemplates.forEach((template, index) => pushRow(template, `base-${index + 1}`));
+
+  let syntheticIndex = 0;
+  while (rows.length < target) {
+    const host = syntheticHosts[syntheticIndex % syntheticHosts.length];
+    const track = syntheticTracks[Math.floor(syntheticIndex / syntheticHosts.length) % syntheticTracks.length];
+    const season = ["Spring", "Summer", "Fall", "Winter"][Math.floor(syntheticIndex / (syntheticHosts.length * syntheticTracks.length)) % 4];
+    const year = 2026 + Math.floor(syntheticIndex / (syntheticHosts.length * syntheticTracks.length * 4));
+    const name = `${host} ${track.label} ${season} ${year}`;
+
+    pushRow(
+      {
+        name,
+        category: track.category,
+        domain_focus: track.domain_focus,
+        stage_fit: track.stage_fit,
+        requires_demo: track.requires_demo,
+        requires_plan: track.requires_plan,
+        judging_focus: track.judging_focus,
+        location: track.location,
+        application_link: track.application_link,
+        progression: track.progression
+      },
+      `synthetic-${syntheticIndex + 1}`
+    );
+    syntheticIndex += 1;
+    if (syntheticIndex > 5000) break;
+  }
+
   return rows;
 }
 

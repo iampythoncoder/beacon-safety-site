@@ -81,6 +81,7 @@ export type Competition = {
   data_status?: string;
   relevance_score?: number;
   explanation?: string;
+  progression?: string[];
 };
 
 export type PitchOpportunity = {

@@ -32,6 +32,7 @@ type Competition = {
     raw_composite?: number;
     calibrated_score?: number;
   };
+  progression?: string[];
 };
 
 type TrackerStatus = "not_started" | "researching" | "drafting" | "submitted" | "finalist";
@@ -57,6 +58,39 @@ function summarizeCompetition(item: Competition) {
     item.requires_plan ? "plan required" : "plan optional"
   ].join(", ");
   return `${category} opportunity for ${stage} teams in ${location}; ${requirements}.`;
+}
+
+function normalizeCompetitionName(name: string) {
+  return name
+    .toLowerCase()
+    .replace(/\s+(national|regional|global|virtual)\s+(spring|summer|fall|winter)\s+20\d{2}$/i, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function dedupeCompetitionList(list: Competition[]) {
+  const map = new Map<string, Competition>();
+  for (const item of list) {
+    const key = `${normalizeCompetitionName(item.name)}|${String(item.application_link || "").toLowerCase()}`;
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, item);
+      continue;
+    }
+    const existingScore = Number(existing.match_score || 0);
+    const nextScore = Number(item.match_score || 0);
+    if (nextScore > existingScore) {
+      map.set(key, item);
+    }
+  }
+  return Array.from(map.values());
+}
+
+function progressionFor(item: Competition | null) {
+  if (!item) return [];
+  if (Array.isArray(item.progression) && item.progression.length > 0) return item.progression;
+  return ["Application", "Semifinal", "Final"];
 }
 
 function fitReasons(item: Competition, project: any) {
@@ -184,11 +218,12 @@ export default function CompetitionsPage() {
         return;
       }
       const data = await res.json();
-      setItems(data || []);
+      const deduped = dedupeCompetitionList(data || []);
+      setItems(deduped);
       setVisibleCount(24);
-      if (!selectedId && data?.[0]?.id) setSelectedId(data[0].id);
+      if (!selectedId && deduped?.[0]?.id) setSelectedId(deduped[0].id);
 
-      const best = data?.[0];
+      const best = deduped?.[0];
       if (best) {
         const reasonRes = await fetch("/api/groq/best-match", {
           method: "POST",
@@ -252,6 +287,7 @@ export default function CompetitionsPage() {
   const visibleItems = filtered.slice(0, visibleCount);
   const compareItems = filtered.filter((item) => compareIds.includes(item.id)).slice(0, 3);
   const selected = items.find((item) => item.id === selectedId) || null;
+  const selectedProgression = progressionFor(selected);
   const trackedCount = Object.values(tracker).filter((entry) => entry.status !== "not_started").length;
 
   function updateTracker(id: string, patch: Partial<TrackerEntry>) {
@@ -641,6 +677,17 @@ export default function CompetitionsPage() {
               <p className="mt-3 text-sm text-black/72">
                 {selected.description || selected.notes || selected.judging_focus || "No additional description available."}
               </p>
+              <p className="mt-4 text-xs uppercase tracking-[0.2em] text-black/45">Competition progression</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {selectedProgression.map((step, index) => (
+                  <div key={`${selected.id}-progression-${index}`} className="inline-flex items-center gap-2">
+                    <span className="rounded-full border border-black/12 bg-white/85 px-3 py-1.5 text-xs text-black/75">
+                      {step}
+                    </span>
+                    {index < selectedProgression.length - 1 && <span className="text-black/40">&rarr;</span>}
+                  </div>
+                ))}
+              </div>
               <p className="mt-4 text-xs uppercase tracking-[0.2em] text-black/45">Judging focus</p>
               <p className="mt-1 text-sm text-black/72">{selected.judging_focus || "Execution quality and clarity."}</p>
               <p className="mt-4 text-xs uppercase tracking-[0.2em] text-black/45">Score components</p>
