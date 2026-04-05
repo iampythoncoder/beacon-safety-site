@@ -161,101 +161,253 @@ function fallbackRoadmap(input: any) {
   ];
 }
 
+type IdeaMetric = "scope" | "complexity" | "market_fit" | "competition_density" | "feasibility";
+type IdeaRating = Record<IdeaMetric, number>;
+
+function clampMetric(value: number, min = 0, max = 100) {
+  return Math.max(min, Math.min(max, Math.round(value)));
+}
+
+function seededOffset(seed: string, key: string, spread = 3) {
+  const source = `${seed}:${key}`;
+  let hash = 0;
+  for (let i = 0; i < source.length; i += 1) {
+    hash = (hash << 5) - hash + source.charCodeAt(i);
+    hash |= 0;
+  }
+  const range = spread * 2 + 1;
+  return (Math.abs(hash) % range) - spread;
+}
+
+function describeBand(score: number) {
+  if (score >= 75) return "strong";
+  if (score >= 60) return "promising";
+  return "early";
+}
+
+function metricLabel(metric: IdeaMetric) {
+  if (metric === "market_fit") return "market fit";
+  if (metric === "competition_density") return "competitive edge";
+  return metric;
+}
+
+function estimateFallbackIdeaRating(payload: any): IdeaRating {
+  const project = payload?.project || payload || {};
+  const onboarding = payload?.onboarding || {};
+  const domain = String(project.domain || onboarding.domains?.[0] || "").trim();
+  const stage = String(project.stage || onboarding.ideaStage || "").toLowerCase();
+  const goal = String(project.goal || onboarding.primaryGoal || "").trim();
+  const ideaText = String(onboarding.ideaSentence || project.project_description || "").trim();
+  const timelineWeeks = Number(project.timeline_available_weeks || 0);
+  const teamSize = Number(project.team_size || 1);
+  const demoBuilt = Boolean(project.demo_built);
+  const domainsCount = Array.isArray(onboarding.domains)
+    ? onboarding.domains.filter(Boolean).length
+    : domain
+      ? 1
+      : 0;
+  const goalWords = goal ? goal.split(/\s+/).filter(Boolean).length : 0;
+  const ideaWords = ideaText ? ideaText.split(/\s+/).filter(Boolean).length : 0;
+  const seed = [domain, stage, goal, ideaText, String(teamSize), String(timelineWeeks), demoBuilt ? "1" : "0"].join("|");
+
+  const stageExecutionBoost =
+    stage.includes("launch") || stage.includes("growth")
+      ? 10
+      : stage.includes("mvp") || stage.includes("beta")
+        ? 7
+        : stage.includes("prototype")
+          ? 4
+          : stage.includes("research")
+            ? 2
+            : 0;
+  const timelineBoost = timelineWeeks >= 12 ? 11 : timelineWeeks >= 8 ? 8 : timelineWeeks >= 5 ? 5 : timelineWeeks > 0 ? 2 : 0;
+  const teamBoost = teamSize >= 3 ? 9 : teamSize === 2 ? 6 : 2;
+
+  return {
+    scope: clampMetric(
+      62 +
+        (goalWords > 0 && goalWords <= 12 ? 10 : goalWords <= 18 ? 6 : 3) +
+        (domainsCount <= 1 ? 8 : domainsCount === 2 ? 5 : 1) +
+        (ideaWords >= 20 ? 5 : ideaWords >= 10 ? 2 : 0) +
+        seededOffset(seed, "scope"),
+      50,
+      95
+    ),
+    complexity: clampMetric(
+      58 +
+        stageExecutionBoost +
+        timelineBoost +
+        teamBoost +
+        (demoBuilt ? 6 : 0) -
+        (domainsCount > 2 ? 3 : 0) +
+        seededOffset(seed, "complexity"),
+      48,
+      93
+    ),
+    market_fit: clampMetric(
+      57 +
+        (ideaWords >= 24 ? 8 : ideaWords >= 12 ? 5 : 1) +
+        (goal ? 7 : 0) +
+        (stage.includes("launch") || stage.includes("mvp") ? 8 : stage.includes("prototype") ? 4 : 0) +
+        (demoBuilt ? 6 : 0) +
+        seededOffset(seed, "market_fit"),
+      48,
+      95
+    ),
+    competition_density: clampMetric(
+      55 +
+        (domainsCount === 1 ? 8 : domainsCount === 2 ? 6 : 3) +
+        (goalWords <= 12 ? 7 : 4) +
+        (demoBuilt ? 6 : 0) +
+        (stage.includes("launch") ? 4 : 0) +
+        seededOffset(seed, "competition_density"),
+      46,
+      92
+    ),
+    feasibility: clampMetric(
+      57 + timelineBoost + teamBoost + stageExecutionBoost + (demoBuilt ? 8 : 0) + seededOffset(seed, "feasibility"),
+      46,
+      96
+    )
+  };
+}
+
+function buildFallbackRatingDetails(rating: IdeaRating, payload: any) {
+  const project = payload?.project || payload || {};
+  const onboarding = payload?.onboarding || {};
+  const domain = String(project.domain || onboarding.domains?.[0] || "your focus domain");
+  const stage = String(project.stage || onboarding.ideaStage || "current stage");
+  const goal = String(project.goal || onboarding.primaryGoal || "current founder goal");
+
+  const makeDetail = (metric: IdeaMetric) => {
+    const score = rating[metric];
+    const band = describeBand(score);
+
+    if (metric === "scope") {
+      return {
+        reason:
+          band === "strong"
+            ? `Scope is focused enough in ${domain} to execute quickly without major drift.`
+            : band === "promising"
+              ? `Scope direction is clear, but a tighter first wedge would improve execution speed in ${domain}.`
+              : "Scope is still broad and will likely slow the first usable release.",
+        improve_with: "Choose one core user segment and one measurable outcome for the next two weeks."
+      };
+    }
+
+    if (metric === "complexity") {
+      return {
+        reason:
+          band === "strong"
+            ? `The build path at ${stage} is realistic with current constraints.`
+            : band === "promising"
+              ? `Complexity is manageable if the first release stays narrow and milestone-driven.`
+              : "Execution complexity is high for the current stage and needs simplification.",
+        improve_with: "Reduce MVP to one end-to-end workflow and defer non-core features."
+      };
+    }
+
+    if (metric === "market_fit") {
+      return {
+        reason:
+          band === "strong"
+            ? "Problem-solution alignment looks strong and ready for traction testing."
+            : band === "promising"
+              ? "Market fit signals exist, but demand evidence is still early."
+              : "Market fit is not validated enough yet to scale build scope.",
+        improve_with: "Run 8 to 10 user calls and capture direct willingness-to-use signals."
+      };
+    }
+
+    if (metric === "competition_density") {
+      return {
+        reason:
+          band === "strong"
+            ? "Your positioning has enough edge to stand out against common alternatives."
+            : band === "promising"
+              ? "Differentiation is forming, but proof points need to be more explicit."
+              : "Competitive pressure is high unless your wedge is clearer and evidence-backed.",
+        improve_with: "Write a one-sentence wedge and prove it weekly with visible product milestones."
+      };
+    }
+
+    return {
+      reason:
+        band === "strong"
+          ? `Current constraints support feasible execution toward ${goal}.`
+          : band === "promising"
+            ? `Execution toward ${goal} is feasible with tighter weekly planning.`
+            : "Feasibility is low until scope and sequencing are simplified.",
+      improve_with: "Set weekly deliverables with owners and track completion each sprint."
+    };
+  };
+
+  return {
+    scope: makeDetail("scope"),
+    complexity: makeDetail("complexity"),
+    market_fit: makeDetail("market_fit"),
+    competition_density: makeDetail("competition_density"),
+    feasibility: makeDetail("feasibility")
+  };
+}
+
+function buildFallbackAspectFeedback(rating: IdeaRating, details: Record<IdeaMetric, { reason: string; improve_with: string }>, seed: string) {
+  const templates = [
+    { aspect: "Problem Clarity", metric: "scope" as const, delta: 4 },
+    { aspect: "User Urgency", metric: "market_fit" as const, delta: 1 },
+    { aspect: "Differentiation", metric: "competition_density" as const, delta: 3 },
+    { aspect: "Distribution", metric: "market_fit" as const, delta: -2 },
+    { aspect: "Monetization Potential", metric: "feasibility" as const, delta: 0 },
+    { aspect: "Technical Execution Risk", metric: "complexity" as const, delta: -1 },
+    { aspect: "Competition Readiness", metric: "competition_density" as const, delta: 2 },
+    { aspect: "Founder Advantage", metric: "feasibility" as const, delta: 2 }
+  ];
+
+  return templates.map((item, index) => {
+    const score = clampMetric(rating[item.metric] + item.delta + seededOffset(seed, `${item.metric}-${index}`, 4), 45, 96);
+    const band = describeBand(score);
+    return {
+      aspect: item.aspect,
+      score,
+      strength: details[item.metric].reason,
+      risk:
+        band === "strong"
+          ? "Main risk is momentum decay if weekly shipping discipline drops."
+          : band === "promising"
+            ? "Risk is moderate until this area has stronger evidence from users."
+            : "Risk is high right now and should be prioritized before expanding scope.",
+      next_action: details[item.metric].improve_with
+    };
+  });
+}
+
+function buildFallbackIdeaFeedback(rating: IdeaRating) {
+  const pairs = (Object.entries(rating) as Array<[IdeaMetric, number]>).sort((a, b) => a[1] - b[1]);
+  const weakest = pairs.slice(0, 2).map(([key]) => metricLabel(key));
+  const avg = Math.round((pairs.reduce((sum, [, value]) => sum + value, 0) / pairs.length) * 10) / 10;
+
+  if (avg >= 74) {
+    return `Strong baseline (${avg}/100). Keep execution tight and focus on improving ${weakest.join(" and ")} with weekly evidence.`;
+  }
+  if (avg >= 58) {
+    return `Promising baseline (${avg}/100). Prioritize ${weakest.join(" and ")} before expanding roadmap scope.`;
+  }
+  return `Early-stage baseline (${avg}/100). Narrow scope and validate ${weakest.join(" and ")} before adding complexity.`;
+}
+
 function fallbackPlan(payload: any) {
   const roadmap = fallbackRoadmap(payload);
   const domain = payload?.project?.domain || payload?.domain || "your selected domain";
   const stage = payload?.project?.stage || payload?.stage || "early validation";
   const goal = payload?.project?.goal || payload?.onboarding?.primaryGoal || "build a real product";
+  const rating = estimateFallbackIdeaRating(payload);
+  const details = buildFallbackRatingDetails(rating, payload);
+  const ratingSeed = [domain, stage, goal].join("|");
   return {
-    idea_rating: {
-      scope: 72,
-      complexity: 63,
-      market_fit: 70,
-      competition_density: 55,
-      feasibility: 74
-    },
-    idea_rating_details: {
-      scope: {
-        reason: `You have a concrete founder direction in ${domain}, but the first version should stay narrower.`,
-        improve_with: "Pick one user segment and one core outcome for the next 2 weeks."
-      },
-      complexity: {
-        reason: "The technical path is feasible, but execution risk increases if you build too many features at once.",
-        improve_with: "Prioritize one end-to-end flow before adding optional features."
-      },
-      market_fit: {
-        reason: `Problem-solution fit looks promising for ${stage}, but validation evidence is still limited.`,
-        improve_with: "Run user interviews and capture decision-making quotes and objections."
-      },
-      competition_density: {
-        reason: "This space has many competitors, so proof and differentiation matter more than ideas.",
-        improve_with: "Define a measurable wedge and ship a traction milestone quickly."
-      },
-      feasibility: {
-        reason: `Given your current goal (${goal}), the roadmap is realistic if you execute weekly.`,
-        improve_with: "Set weekly deliverables and log progress publicly to maintain momentum."
-      }
-    },
-    idea_aspect_feedback: [
-      {
-        aspect: "Problem Clarity",
-        score: 78,
-        strength: "The problem statement is understandable and tied to a real student pain point.",
-        risk: "Problem statement still spans multiple user types which can blur execution focus.",
-        next_action: "Choose one exact user segment and one measurable pain indicator for the next sprint."
-      },
-      {
-        aspect: "User Urgency",
-        score: 69,
-        strength: "Users likely relate to the problem and can describe current frustrations.",
-        risk: "Urgency may be moderate unless you validate behavior-level willingness to switch.",
-        next_action: "Run 8 interview calls and capture urgency signals with exact quotes."
-      },
-      {
-        aspect: "Differentiation",
-        score: 64,
-        strength: "There is room to position this as a founder-first execution workflow.",
-        risk: "Competitor overlap is high without a clear wedge and proof artifact strategy.",
-        next_action: "Define a one-sentence wedge and add one unique proof mechanism in week 1."
-      },
-      {
-        aspect: "Distribution",
-        score: 62,
-        strength: "You can access early users through school communities and founder channels.",
-        risk: "Distribution is unproven until consistent traffic and signup conversions are tracked.",
-        next_action: "Ship tracked acquisition experiments in Reddit and student communities this week."
-      },
-      {
-        aspect: "Monetization Potential",
-        score: 66,
-        strength: "A free-to-paid upgrade path is plausible with mentor and advanced features.",
-        risk: "Willingness to pay is unknown for early-stage student users.",
-        next_action: "Test pricing hypotheses with waitlist users before adding premium complexity."
-      },
-      {
-        aspect: "Technical Execution Risk",
-        score: 71,
-        strength: "Current tools make MVP development feasible within short timelines.",
-        risk: "Execution risk rises quickly if scope expands beyond a single core workflow.",
-        next_action: "Limit sprint scope to one complete value flow with instrumentation."
-      },
-      {
-        aspect: "Competition Readiness",
-        score: 74,
-        strength: "Roadmap structure aligns with requirements for major student competitions.",
-        risk: "Submission quality depends on proof, not just plan quality.",
-        next_action: "Prepare demo + traction artifacts before finalizing pitch deck narrative."
-      },
-      {
-        aspect: "Founder Advantage",
-        score: 73,
-        strength: "Founder motivation and execution cadence can become a major edge.",
-        risk: "Momentum may drop without a strict weekly accountability loop.",
-        next_action: "Log weekly progress publicly and tie each week to one visible deliverable."
-      }
-    ],
-    idea_feedback:
-      "Strong execution potential if you validate demand quickly and keep the first version narrow. Focus on one measurable user outcome.",
+    idea_rating: rating,
+    idea_rating_details: details,
+    idea_aspect_feedback: buildFallbackAspectFeedback(rating, details, ratingSeed),
+    idea_feedback: buildFallbackIdeaFeedback(rating),
     business_plan: {
       problem: "Students with strong ideas lack a clear startup execution path.",
       solution: "A founder OS that gives stage-based steps, tools, and opportunity matching.",

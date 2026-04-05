@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "../../../../lib/supabaseServer";
 import { createGroqClient, generatePlan } from "../../../../lib/groq";
 import { computeLegacyProgress, isMissingTableError, normalizeRoadmap } from "../../../../lib/legacyRoadmap";
+import { requireProEntitlement } from "../../../../lib/proEntitlement";
 
 export const runtime = "nodejs";
 
@@ -108,11 +109,18 @@ async function upsertLegacyProject(params: {
 
 export async function POST(req: Request) {
   try {
+    const entitlement = await requireProEntitlement(req);
+    if ("error" in entitlement) return entitlement.error;
+
     const body = await req.json();
     const { user_id, project, onboarding } = body || {};
-    if (!user_id || !project) {
-      return NextResponse.json({ error: "Missing user_id or project" }, { status: 400 });
+    if (!project) {
+      return NextResponse.json({ error: "Missing project payload" }, { status: 400 });
     }
+    if (user_id && user_id !== entitlement.user.id) {
+      return NextResponse.json({ error: "Forbidden: user mismatch" }, { status: 403 });
+    }
+    const resolvedUserId = entitlement.user.id;
 
     const groq = createGroqClient();
     const aiResponse = await generatePlan(groq, { project, onboarding });
@@ -127,7 +135,7 @@ export async function POST(req: Request) {
     const { data: insertedProject, error: projectError } = await supabaseServer
       .from("projects")
       .insert({
-        user_id,
+        user_id: resolvedUserId,
         name: project.project_name,
         description: project.project_description,
         domain: project.domain,
@@ -151,7 +159,7 @@ export async function POST(req: Request) {
 
     if (usedLegacy) {
       const legacyRow = await upsertLegacyProject({
-        userId: user_id,
+        userId: resolvedUserId,
         projectInput: project,
         onboarding,
         aiResponse,
@@ -160,7 +168,7 @@ export async function POST(req: Request) {
 
       if (onboarding) {
         const { error: profileError } = await supabaseServer.from("startup_profile").insert({
-          user_id,
+          user_id: resolvedUserId,
           idea_stage: onboarding.ideaStage,
           domains: Array.isArray(onboarding.domains) ? onboarding.domains.join(", ") : onboarding.domains || "",
           primary_goal: onboarding.primaryGoal,
@@ -173,12 +181,12 @@ export async function POST(req: Request) {
         }
       }
 
-      await safeMarkOnboardingComplete(user_id);
+      await safeMarkOnboardingComplete(resolvedUserId);
 
       return NextResponse.json({
         project: {
           id: legacyRow.id,
-          user_id,
+          user_id: resolvedUserId,
           name: project.project_name,
           domain: project.domain,
           stage: project.stage
@@ -191,7 +199,7 @@ export async function POST(req: Request) {
 
     if (onboarding && projectRow?.id) {
       const { error: onboardingError } = await supabaseServer.from("onboarding_answers").insert({
-        user_id,
+        user_id: resolvedUserId,
         project_id: projectRow.id,
         idea_stage: onboarding.ideaStage,
         domains: onboarding.domains || [],
@@ -246,7 +254,7 @@ export async function POST(req: Request) {
       await supabaseServer.from("user_projects").upsert(
         {
           id: projectRow.id,
-          user_id,
+          user_id: resolvedUserId,
           project_input: { ...project, onboarding: onboarding || null, generated_project_id: projectRow.id },
           idea_rating: aiResponse.idea_rating || {},
           lean_business_plan: {
@@ -262,7 +270,7 @@ export async function POST(req: Request) {
       );
     }
 
-    await safeMarkOnboardingComplete(user_id);
+    await safeMarkOnboardingComplete(resolvedUserId);
 
     return NextResponse.json({
       project: projectRow,

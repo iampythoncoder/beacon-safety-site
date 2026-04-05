@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "../../../../lib/supabaseServer";
 import { computeLegacyProgress, isMissingTableError, normalizeRoadmap } from "../../../../lib/legacyRoadmap";
+import { getValidationState, shouldEnforceValidationGate } from "../../../../lib/validationTracker";
 
 export const runtime = "nodejs";
 
@@ -50,6 +51,22 @@ export async function POST(req: Request) {
         unlockedStages: recomputed.unlockedStages
       };
 
+      let unlockBlocked = false;
+      let validationGate: any = null;
+      const stageIndex = roadmap.findIndex((stage) => stage.stage_id === stage_row_id);
+      const nextStage = stageIndex >= 0 ? roadmap[stageIndex + 1] : null;
+      if (nextStage && shouldEnforceValidationGate(nextStage.stage_name)) {
+        const validation = await getValidationState(project_id);
+        if (!validation.status.milestone_ready) {
+          unlockBlocked = true;
+          validationGate = validation.status;
+          finalProgress.unlockedStages = {
+            ...(finalProgress.unlockedStages || {}),
+            [nextStage.stage_id]: false
+          };
+        }
+      }
+
       const { error: saveError } = await supabaseServer
         .from("user_projects")
         .update({ progress: finalProgress })
@@ -58,7 +75,9 @@ export async function POST(req: Request) {
 
       return NextResponse.json({
         ok: true,
-        allComplete: Boolean(recomputed.stages?.[stage_row_id]?.completed)
+        allComplete: Boolean(recomputed.stages?.[stage_row_id]?.completed),
+        unlock_blocked: unlockBlocked,
+        validation_gate: validationGate
       });
     }
 
@@ -75,6 +94,25 @@ export async function POST(req: Request) {
         .eq("id", stage_row_id)
         .single();
       if (stage) {
+        const { data: nextStage } = await supabaseServer
+          .from("roadmap_stages")
+          .select("id, stage_name")
+          .eq("project_id", stage.project_id)
+          .eq("position", stage.position + 1)
+          .maybeSingle();
+
+        if (nextStage && shouldEnforceValidationGate(nextStage.stage_name)) {
+          const validation = await getValidationState(stage.project_id);
+          if (!validation.status.milestone_ready) {
+            return NextResponse.json({
+              ok: true,
+              allComplete,
+              unlock_blocked: true,
+              validation_gate: validation.status
+            });
+          }
+        }
+
         await supabaseServer
           .from("roadmap_stages")
           .update({ unlocked: true })

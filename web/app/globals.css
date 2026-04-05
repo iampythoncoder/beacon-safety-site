@@ -1232,6 +1232,44 @@ body {
   font-size: 0.86rem;
 }
 
+.idea-rating-row-metrics {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.idea-rating-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-style: normal;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.74);
+  color: rgba(15, 23, 42, 0.62);
+}
+
+.idea-rating-pill.is-strong {
+  border-color: rgba(5, 150, 105, 0.22);
+  background: rgba(16, 185, 129, 0.12);
+  color: rgba(5, 150, 105, 0.82);
+}
+
+.idea-rating-pill.is-promising {
+  border-color: rgba(37, 99, 235, 0.2);
+  background: rgba(59, 130, 246, 0.1);
+  color: rgba(30, 64, 175, 0.85);
+}
+
+.idea-rating-pill.is-risky {
+  border-color: rgba(234, 88, 12, 0.24);
+  background: rgba(251, 146, 60, 0.15);
+  color: rgba(194, 65, 12, 0.9);
+}
+
 .idea-rating-row-top strong {
   font-size: 0.82rem;
   color: rgba(15, 23, 42, 0.82);
@@ -1250,6 +1288,18 @@ body {
   border-radius: 999px;
   background: linear-gradient(90deg, #0f172a, #374151);
   animation: grow 900ms ease;
+}
+
+.idea-rating-row.is-strong .idea-rating-bar span {
+  background: linear-gradient(90deg, #047857, #10b981);
+}
+
+.idea-rating-row.is-promising .idea-rating-bar span {
+  background: linear-gradient(90deg, #1d4ed8, #38bdf8);
+}
+
+.idea-rating-row.is-risky .idea-rating-bar span {
+  background: linear-gradient(90deg, #c2410c, #f97316);
 }
 
 .idea-rating-detail {

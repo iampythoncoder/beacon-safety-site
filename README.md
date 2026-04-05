@@ -44,11 +44,17 @@ SUPABASE_URL=your_supabase_url
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 GROQ_API_KEY=your_groq_key
 GROQ_MODEL=llama-3.3-70b-versatile
+STRIPE_SECRET_KEY=your_stripe_secret_key
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=your_stripe_publishable_key
+PRICE_ID=your_stripe_price_id
+STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
 ```
 
 Notes:
 - `SUPABASE_SERVICE_ROLE_KEY` is required server-side for Next.js route handlers.
 - `GROQ_API_KEY` is only used server-side.
+- Stripe webhooks (local): `stripe listen --forward-to localhost:3000/api/stripe/webhook`
 
 ## Run
 Option A (root script):
@@ -74,6 +80,9 @@ npm run dev
 - `POST /api/generate/plan`
 - `POST /api/generate/roadmap`
 - `POST /api/groq/chat`
+- `POST /api/stripe/create-checkout-session`
+- `POST /api/stripe/create-portal-session`
+- `POST /api/stripe/webhook`
 - `GET /api/onboarding/status?user_id=`
 - `GET /api/projects/latest?user_id=`
 - `GET /api/roadmap?project_id=`

@@ -22,26 +22,137 @@ type CompetitionPreview = {
   match_score?: number;
 };
 
-const defaultIdeaRating = {
-  scope: 72,
-  complexity: 63,
-  market_fit: 70,
-  competition_density: 55,
-  feasibility: 74
+type ReadinessScore = {
+  id: string;
+  label: string;
+  score: number;
+  rationale?: string;
+  components?: {
+    progress_logs?: number;
+    roadmap_completion?: number;
+    user_submissions?: number;
+  };
 };
+
+type ResourceLink = {
+  id: string;
+  title: string;
+  type: "Guide" | "Video" | "Course" | "Template";
+  tags: string[];
+  url: string;
+  note: string;
+};
+
+const emptyIdeaRating = {
+  scope: 0,
+  complexity: 0,
+  market_fit: 0,
+  competition_density: 0,
+  feasibility: 0
+};
+
+const resourceLibrary: ResourceLink[] = [
+  {
+    id: "yc-users",
+    title: "Y Combinator: How to Talk to Users",
+    type: "Guide",
+    tags: ["validation", "research", "problem"],
+    url: "https://www.ycombinator.com/library/6f-how-to-talk-to-users",
+    note: "Interview framework for finding painful, recurring problems."
+  },
+  {
+    id: "pmf-survey",
+    title: "PMF Survey Template",
+    type: "Template",
+    tags: ["validation", "survey", "retention"],
+    url: "https://www.lennysnewsletter.com/p/product-market-fit-survey-template",
+    note: "Use this to quantify product-market-fit signals."
+  },
+  {
+    id: "nextjs-course",
+    title: "Next.js Foundations",
+    type: "Course",
+    tags: ["build", "mvp", "frontend"],
+    url: "https://nextjs.org/learn",
+    note: "Fast path for shipping landing + onboarding flow."
+  },
+  {
+    id: "supabase-next",
+    title: "Supabase + Next.js Quickstart",
+    type: "Guide",
+    tags: ["build", "backend", "auth"],
+    url: "https://supabase.com/docs/guides/getting-started/quickstarts/nextjs",
+    note: "Reference integration for auth, database, and API routes."
+  },
+  {
+    id: "sequoia-plan",
+    title: "Sequoia Business Plan Framework",
+    type: "Guide",
+    tags: ["plan", "pitch", "funding"],
+    url: "https://www.sequoiacap.com/article/writing-a-business-plan/",
+    note: "Structure your narrative for judges and investors."
+  },
+  {
+    id: "deck-teardown",
+    title: "YC Pitch Deck Teardown",
+    type: "Video",
+    tags: ["pitch", "story", "funding"],
+    url: "https://www.youtube.com/watch?v=CBYhVcO4WgI",
+    note: "How strong decks communicate traction, timing, and insight."
+  }
+];
+
+function clampScore(value: number, min = 0, max = 100) {
+  return Math.max(min, Math.min(max, Math.round(value)));
+}
+
+function estimateIdeaRatingFromProject(project: any) {
+  const stage = String(project?.stage || "").toLowerCase();
+  const timeline = Number(project?.timeline_available_weeks || 0);
+  const teamSize = Number(project?.team_size || 1);
+  const demoBuilt = Boolean(project?.demo_built);
+  const goalWords = String(project?.goal || "")
+    .split(/\s+/)
+    .filter(Boolean).length;
+
+  const stageBoost =
+    stage.includes("launch") || stage.includes("growth")
+      ? 10
+      : stage.includes("mvp")
+        ? 7
+        : stage.includes("prototype")
+          ? 4
+          : 1;
+  const timelineBoost = timeline >= 12 ? 11 : timeline >= 8 ? 8 : timeline >= 5 ? 5 : timeline > 0 ? 2 : 0;
+  const teamBoost = teamSize >= 3 ? 9 : teamSize === 2 ? 6 : 2;
+
+  return {
+    scope: clampScore(63 + (goalWords > 0 && goalWords <= 12 ? 10 : 6)),
+    complexity: clampScore(56 + stageBoost + timelineBoost + teamBoost + (demoBuilt ? 5 : 0)),
+    market_fit: clampScore(
+      58 + (goalWords > 0 ? 7 : 1) + (demoBuilt ? 7 : 0) + (stage.includes("mvp") || stage.includes("launch") ? 6 : 3)
+    ),
+    competition_density: clampScore(55 + (demoBuilt ? 6 : 0) + (stage.includes("launch") ? 4 : 2)),
+    feasibility: clampScore(57 + stageBoost + timelineBoost + teamBoost + (demoBuilt ? 8 : 0))
+  };
+}
 
 export default function OverviewPage() {
   const [progress, setProgress] = useState(0);
   const [nextActions, setNextActions] = useState<string[]>([]);
   const [projectId, setProjectId] = useState<string>("");
-  const [ideaRating, setIdeaRating] = useState<any>(defaultIdeaRating);
+  const [ideaRating, setIdeaRating] = useState<any>(emptyIdeaRating);
   const [ideaRatingDetails, setIdeaRatingDetails] = useState<Record<string, any>>({});
   const [ideaAspectFeedback, setIdeaAspectFeedback] = useState<any[]>([]);
   const [ideaFeedback, setIdeaFeedback] = useState<string>("");
+  const [ideaRatingSource, setIdeaRatingSource] = useState<"ai" | "estimated">("estimated");
   const [trend, setTrend] = useState<TrendPoint[]>([]);
   const [stages, setStages] = useState<RoadmapStage[]>([]);
   const [planSnapshot, setPlanSnapshot] = useState<any>(null);
   const [topMatches, setTopMatches] = useState<CompetitionPreview[]>([]);
+  const [readinessScores, setReadinessScores] = useState<ReadinessScore[]>([]);
+  const [selectedStageId, setSelectedStageId] = useState<string>("");
+  const [resourceTag, setResourceTag] = useState<string>("all");
 
   useEffect(() => {
     async function load() {
@@ -53,11 +164,19 @@ export default function OverviewPage() {
       const project = await projectRes.json();
       if (!project?.id) return;
       setProjectId(project.id);
+      setIdeaRating(estimateIdeaRatingFromProject(project));
+      setIdeaRatingDetails({});
+      setIdeaAspectFeedback([]);
+      setIdeaFeedback("Estimated baseline from project profile. Generate or regenerate your plan for AI-calibrated scores.");
+      setIdeaRatingSource("estimated");
 
       const roadmapRes = await fetch(`/api/roadmap?project_id=${project.id}`);
       if (roadmapRes.ok) {
         const roadmapStages: RoadmapStage[] = await roadmapRes.json();
         setStages(roadmapStages);
+        if (roadmapStages[0]?.id) {
+          setSelectedStageId((current) => current || roadmapStages[0].id);
+        }
         const tasks = roadmapStages.flatMap((stage) => stage.tasks || []);
         const completed = tasks.filter((task) => task.completed).length;
         const pct = tasks.length ? Math.round((completed / tasks.length) * 100) : 0;
@@ -71,10 +190,13 @@ export default function OverviewPage() {
       if (planRes.ok) {
         const plan = await planRes.json();
         const planData = plan?.plan || null;
-        setIdeaRating(planData?.idea_rating || defaultIdeaRating);
-        setIdeaRatingDetails(planData?.idea_rating_details || {});
-        setIdeaAspectFeedback(planData?.idea_aspect_feedback || []);
-        setIdeaFeedback(planData?.idea_feedback || "");
+        if (planData?.idea_rating) {
+          setIdeaRating(planData.idea_rating);
+          setIdeaRatingDetails(planData?.idea_rating_details || {});
+          setIdeaAspectFeedback(planData?.idea_aspect_feedback || []);
+          setIdeaFeedback(planData?.idea_feedback || "");
+          setIdeaRatingSource("ai");
+        }
         setPlanSnapshot(planData?.business_plan || planData?.lean_business_plan || planData);
       }
 
@@ -85,6 +207,12 @@ export default function OverviewPage() {
       if (matchRes.ok) {
         const matches = await matchRes.json();
         setTopMatches((matches || []).slice(0, 3));
+      }
+
+      const readinessRes = await fetch(`/api/readiness?project_id=${project.id}`);
+      if (readinessRes.ok) {
+        const readiness = await readinessRes.json();
+        setReadinessScores(Array.isArray(readiness?.scores) ? readiness.scores : []);
       }
     }
     load();
@@ -107,6 +235,39 @@ export default function OverviewPage() {
       }),
     [stages]
   );
+
+  const selectedStage = useMemo(
+    () =>
+      stages.find((stage) => stage.id === selectedStageId) ||
+      (stages.length > 0 ? stages[0] : null),
+    [stages, selectedStageId]
+  );
+
+  const availableResourceTags = useMemo(() => {
+    const set = new Set<string>();
+    resourceLibrary.forEach((resource) => resource.tags.forEach((tag) => set.add(tag)));
+    return ["all", ...Array.from(set)];
+  }, []);
+
+  const filteredResources = useMemo(() => {
+    if (resourceTag === "all") return resourceLibrary;
+    return resourceLibrary.filter((resource) => resource.tags.includes(resourceTag));
+  }, [resourceTag]);
+
+  const stageResources = useMemo(() => {
+    if (!selectedStage?.stage_name) return filteredResources.slice(0, 4);
+    const label = selectedStage.stage_name.toLowerCase();
+    const inferredTags: string[] = [];
+    if (label.includes("ideation") || label.includes("validation")) inferredTags.push("validation", "research");
+    if (label.includes("build") || label.includes("mvp") || label.includes("prototype")) inferredTags.push("build", "backend", "frontend");
+    if (label.includes("pitch") || label.includes("fund") || label.includes("competition")) inferredTags.push("pitch", "funding", "plan");
+    if (inferredTags.length === 0) return filteredResources.slice(0, 4);
+
+    const prioritized = filteredResources.filter((resource) =>
+      resource.tags.some((tag) => inferredTags.includes(tag))
+    );
+    return prioritized.length > 0 ? prioritized.slice(0, 4) : filteredResources.slice(0, 4);
+  }, [filteredResources, selectedStage]);
 
   const improvementNotes = useMemo(() => {
     const keys = ["scope", "complexity", "market_fit", "competition_density", "feasibility"];
@@ -247,7 +408,7 @@ export default function OverviewPage() {
               <p className="mt-2 text-lg font-semibold">How your idea is scored and why</p>
             </div>
             <span className="px-3 py-1 rounded-full border border-black/15 bg-white/80 text-[11px] uppercase tracking-[0.22em] text-black/55">
-              Live
+              {ideaRatingSource === "ai" ? "AI-calibrated" : "Estimated"}
             </span>
           </div>
           <IdeaRatingPanel ideaRating={ideaRating} details={ideaRatingDetails} showHeader={false} />
@@ -269,6 +430,70 @@ export default function OverviewPage() {
           )}
           {renderTrend()}
         </div>
+      </section>
+
+      <section className="card p-7">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.32em] text-black/40">Readiness Scorecards</p>
+            <p className="mt-2 text-lg font-semibold">Competition, pitch, accelerator, technical, and market readiness</p>
+          </div>
+          <a className="text-xs uppercase tracking-[0.22em] text-black/55" href="/progress">
+            Update progress
+          </a>
+        </div>
+
+        {readinessScores.length === 0 ? (
+          <p className="mt-4 text-sm text-black/60">
+            Log progress and complete roadmap tasks to unlock readiness scorecards.
+          </p>
+        ) : (
+          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+            {readinessScores.map((score) => {
+              const progressComponent = score.components?.progress_logs || 0;
+              const roadmapComponent = score.components?.roadmap_completion || 0;
+              const submissionComponent = score.components?.user_submissions || 0;
+              return (
+                <article key={score.id} className="rounded-2xl border border-black/10 bg-white/82 p-4">
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-black/45">{score.label}</p>
+                  <p className="mt-2 text-3xl font-semibold">{score.score}%</p>
+
+                  <div className="mt-4 space-y-2">
+                    <div>
+                      <div className="flex items-center justify-between text-[11px] text-black/60">
+                        <span>Progress logs</span>
+                        <span>{progressComponent}%</span>
+                      </div>
+                      <div className="mt-1 h-1.5 rounded-full bg-black/10 overflow-hidden">
+                        <span className="block h-full bg-black" style={{ width: `${progressComponent}%` }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between text-[11px] text-black/60">
+                        <span>Roadmap completion</span>
+                        <span>{roadmapComponent}%</span>
+                      </div>
+                      <div className="mt-1 h-1.5 rounded-full bg-black/10 overflow-hidden">
+                        <span className="block h-full bg-black" style={{ width: `${roadmapComponent}%` }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between text-[11px] text-black/60">
+                        <span>User submissions</span>
+                        <span>{submissionComponent}%</span>
+                      </div>
+                      <div className="mt-1 h-1.5 rounded-full bg-black/10 overflow-hidden">
+                        <span className="block h-full bg-black" style={{ width: `${submissionComponent}%` }} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="mt-3 text-xs text-black/58">{score.rationale || ""}</p>
+                </article>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       <section className="card p-7 space-y-4">
@@ -295,32 +520,67 @@ export default function OverviewPage() {
               Open roadmap
             </a>
           </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            {stageSummaries.length === 0 ? (
-              <p className="text-sm text-black/60">No roadmap yet. Generate one to get started.</p>
-            ) : (
-              stageSummaries.slice(0, 6).map((stage) => (
-                <div key={stage.id} className="rounded-2xl border border-black/10 bg-white/80 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-[11px] uppercase tracking-[0.22em] text-black/45">Stage {stage.index}</p>
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] uppercase tracking-[0.2em] ${
-                        stage.unlocked ? "bg-black text-white" : "bg-black/10 text-black/50"
-                      }`}
-                    >
-                      {stage.unlocked ? "Unlocked" : "Locked"}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-sm font-medium">{stage.name}</p>
-                  <div className="mt-3 h-2 rounded-full bg-black/10 overflow-hidden">
-                    <span className="block h-full bg-black" style={{ width: `${stage.pct}%` }} />
-                  </div>
-                  <p className="mt-2 text-xs text-black/55">
-                    {stage.pct}% complete · {stage.total} tasks
+          <div className="mt-4 grid gap-4 lg:grid-cols-[0.46fr_0.54fr]">
+            <div className="grid gap-3">
+              {stageSummaries.length === 0 ? (
+                <p className="text-sm text-black/60">No roadmap yet. Generate one to get started.</p>
+              ) : (
+                stageSummaries.slice(0, 6).map((stage) => (
+                  <button
+                    key={stage.id}
+                    onClick={() => setSelectedStageId(stage.id)}
+                    className={`rounded-2xl border p-4 text-left transition ${
+                      selectedStage?.id === stage.id
+                        ? "border-black/25 bg-white shadow-[0_20px_45px_rgba(15,23,42,0.12)]"
+                        : "border-black/10 bg-white/80 hover:border-black/18 hover:bg-white"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-[11px] uppercase tracking-[0.22em] text-black/45">Stage {stage.index}</p>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] uppercase tracking-[0.2em] ${
+                          stage.unlocked ? "bg-black text-white" : "bg-black/10 text-black/50"
+                        }`}
+                      >
+                        {stage.unlocked ? "Unlocked" : "Locked"}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm font-medium">{stage.name}</p>
+                    <div className="mt-3 h-2 rounded-full bg-black/10 overflow-hidden">
+                      <span className="block h-full bg-black" style={{ width: `${stage.pct}%` }} />
+                    </div>
+                    <p className="mt-2 text-xs text-black/55">
+                      {stage.pct}% complete · {stage.total} tasks
+                    </p>
+                  </button>
+                ))
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-black/12 bg-white/86 p-4">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-black/45">Stage detail</p>
+              {selectedStage ? (
+                <>
+                  <h4 className="mt-2 text-lg font-semibold">{selectedStage.stage_name}</h4>
+                  <p className="mt-1 text-xs text-black/55">
+                    {selectedStage.tasks.filter((task) => task.completed).length}/{selectedStage.tasks.length} tasks complete
                   </p>
-                </div>
-              ))
-            )}
+                  <div className="mt-3 space-y-2">
+                    {selectedStage.tasks.slice(0, 5).map((task, index) => (
+                      <div key={task.id} className="rounded-xl border border-black/8 bg-white/90 px-3 py-2">
+                        <p className="text-[10px] uppercase tracking-[0.2em] text-black/45">Task {index + 1}</p>
+                        <p className="mt-1 text-sm text-black/78">{task.task}</p>
+                      </div>
+                    ))}
+                    {selectedStage.tasks.length === 0 && (
+                      <p className="text-sm text-black/60">No tasks in this stage yet.</p>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <p className="mt-2 text-sm text-black/60">Select a stage to inspect its active tasks.</p>
+              )}
+            </div>
           </div>
         </div>
 
@@ -362,6 +622,53 @@ export default function OverviewPage() {
                 "Define the exact founder problem you solve and pair it with measurable proof."}
             </p>
           </div>
+        </div>
+      </section>
+
+      <section className="card p-7 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.32em] text-black/40">Founder Resource Vault</p>
+            <p className="mt-2 text-lg font-semibold">Guides, videos, and templates to execute faster</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {availableResourceTags.map((tag) => (
+              <button
+                key={tag}
+                onClick={() => setResourceTag(tag)}
+                className={`px-3 py-1 rounded-full border text-[11px] uppercase tracking-[0.2em] transition ${
+                  resourceTag === tag
+                    ? "bg-black text-white border-black"
+                    : "bg-white/80 text-black/62 border-black/12 hover:border-black/25"
+                }`}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {stageResources.map((resource) => (
+            <article key={resource.id} className="rounded-2xl border border-black/10 bg-white/82 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[11px] uppercase tracking-[0.2em] text-black/45">{resource.type}</p>
+                <span className="px-2 py-0.5 rounded-full bg-black/8 text-[10px] uppercase tracking-[0.18em] text-black/55">
+                  {resource.tags[0]}
+                </span>
+              </div>
+              <p className="mt-2 text-sm font-semibold text-black/84">{resource.title}</p>
+              <p className="mt-2 text-xs text-black/62">{resource.note}</p>
+              <a
+                href={resource.url}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-3 inline-flex text-xs uppercase tracking-[0.18em] text-black/60 underline underline-offset-4"
+              >
+                Open resource
+              </a>
+            </article>
+          ))}
         </div>
       </section>
 

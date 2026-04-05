@@ -63,11 +63,20 @@ export default function ProgressPage() {
   }
 
   async function toggleTask(stageRowId: string, taskId: string, completed: boolean) {
-    await fetch("/api/progress/completeTask", {
+    const res = await fetch("/api/progress/completeTask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ stage_row_id: stageRowId, task_id: taskId, completed, project_id: projectId })
     });
+    const payload = await res.json().catch(() => ({}));
+    if (payload?.unlock_blocked) {
+      const missing = Array.isArray(payload?.validation_gate?.missing_requirements)
+        ? payload.validation_gate.missing_requirements.join(" ")
+        : "Complete validation milestones first.";
+      setStatus(`Validation gate active. ${missing}`);
+    } else {
+      setStatus("");
+    }
     const roadmapRes = await fetch(`/api/roadmap?project_id=${projectId}`);
     if (roadmapRes.ok) setStages(await roadmapRes.json());
   }
@@ -76,10 +85,18 @@ export default function ProgressPage() {
     <div className="os-page space-y-6">
       <section className="card p-8">
         <p className="text-xs uppercase tracking-[0.32em] text-black/45">Progress Tracking</p>
-        <h2 className="mt-3 text-4xl font-semibold tracking-tight">Log execution and unlock next actions</h2>
+        <h2 className="mt-3 text-4xl font-semibold tracking-tight">Log execution and update roadmap state</h2>
         <p className="mt-3 text-black/65 max-w-2xl">
-          Each update helps recalibrate your roadmap and keeps mentor guidance aligned with what you shipped.
+          Progress logs update your readiness and roadmap. Validation is now managed on its own page.
         </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <a href="/validation" className="px-4 py-2 rounded-full bg-ink text-white text-sm">
+            Open Validation Page
+          </a>
+          <a href="/roadmap" className="px-4 py-2 rounded-full border border-black/15 bg-white/82 text-sm">
+            Open Roadmap
+          </a>
+        </div>
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1fr_1fr]">

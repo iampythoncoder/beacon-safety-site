@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../../lib/supabaseClient";
+import { withAuthHeaders } from "../../../lib/authFetch";
 
 type Competition = {
   id: string;
@@ -29,10 +30,39 @@ type Competition = {
     readiness_fit?: number;
     accessibility_fit?: number;
     judging_alignment?: number;
+    prestige_fit?: number;
+    data_quality?: number;
     raw_composite?: number;
     calibrated_score?: number;
   };
   progression?: string[];
+  competition_intelligence?: {
+    deadline_countdown_days?: number | null;
+    deadline_label?: string;
+    deadline_urgency?: "rolling" | "normal" | "soon" | "critical" | "passed" | string;
+    auto_checklist?: Array<{
+      id: string;
+      label: string;
+      done: boolean;
+      required?: boolean;
+    }>;
+    missing_requirements?: string[];
+    qualification_gap?: string;
+    missing_to_qualify?: string;
+    readiness_percent?: number;
+    win_probability?: number;
+    win_probability_label?: string;
+    confidence?: number;
+    winner_patterns?: {
+      summary?: string;
+      signals?: string[];
+      patterns?: Array<{
+        title: string;
+        insight: string;
+        action: string;
+      }>;
+    };
+  };
 };
 
 type TrackerStatus = "not_started" | "researching" | "drafting" | "submitted" | "finalist";
@@ -140,15 +170,38 @@ function scoreTone(score: number) {
   return "text-black";
 }
 
+function urgencyChipTone(urgency?: string) {
+  if (urgency === "critical") return "bg-red-50 text-red-700 border-red-200";
+  if (urgency === "soon") return "bg-amber-50 text-amber-700 border-amber-200";
+  if (urgency === "passed") return "bg-black/8 text-black/65 border-black/12";
+  if (urgency === "rolling") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  return "bg-sky-50 text-sky-700 border-sky-200";
+}
+
+function urgencyDotTone(urgency?: string) {
+  if (urgency === "critical") return "bg-red-500";
+  if (urgency === "soon") return "bg-amber-500";
+  if (urgency === "passed") return "bg-black/45";
+  if (urgency === "rolling") return "bg-emerald-500";
+  return "bg-sky-500";
+}
+
 function scoreRows(item: Competition) {
   const breakdown = item.match_breakdown || {};
+  const strategicInputs = [breakdown.domain_alignment, breakdown.stage_alignment, breakdown.goal_alignment].filter(
+    (value): value is number => typeof value === "number"
+  );
+  const strategicFit =
+    strategicInputs.length > 0
+      ? Math.round(strategicInputs.reduce((sum, value) => sum + value, 0) / strategicInputs.length)
+      : undefined;
   return [
-    { label: "Domain", value: breakdown.domain_alignment },
-    { label: "Stage", value: breakdown.stage_alignment },
-    { label: "Goal", value: breakdown.goal_alignment },
-    { label: "Readiness", value: breakdown.readiness_fit },
-    { label: "Access", value: breakdown.accessibility_fit },
-    { label: "Judging", value: breakdown.judging_alignment }
+    { label: "Strategic Fit", value: strategicFit, weight: "58%", hint: "Domain + stage + goal alignment" },
+    { label: "Execution", value: breakdown.readiness_fit, weight: "14%", hint: "Submission readiness right now" },
+    { label: "Access", value: breakdown.accessibility_fit, weight: "10%", hint: "Eligibility and logistical fit" },
+    { label: "Judge Fit", value: breakdown.judging_alignment, weight: "8%", hint: "Judging criteria alignment" },
+    { label: "Prestige", value: breakdown.prestige_fit, weight: "6%", hint: "Brand and network upside" },
+    { label: "Data", value: breakdown.data_quality, weight: "4%", hint: "Completeness of opportunity data" }
   ];
 }
 
@@ -225,12 +278,15 @@ export default function CompetitionsPage() {
 
       const best = deduped?.[0];
       if (best) {
+        const headers = await withAuthHeaders({ "Content-Type": "application/json" });
         const reasonRes = await fetch("/api/groq/best-match", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify({ project, match: best, type: "competition" })
         });
-        if (reasonRes.ok) {
+        if (reasonRes.status === 402) {
+          setBestReason("Upgrade to LaunchLab Pro to unlock AI best-match reasoning.");
+        } else if (reasonRes.ok) {
           const reason = await reasonRes.json();
           setBestReason(reason.reasoning || "");
         }
@@ -288,6 +344,10 @@ export default function CompetitionsPage() {
   const compareItems = filtered.filter((item) => compareIds.includes(item.id)).slice(0, 3);
   const selected = items.find((item) => item.id === selectedId) || null;
   const selectedProgression = progressionFor(selected);
+  const selectedIntelligence = selected?.competition_intelligence;
+  const selectedChecklist = selectedIntelligence?.auto_checklist || [];
+  const selectedMissing = selectedIntelligence?.missing_requirements || [];
+  const selectedPatterns = selectedIntelligence?.winner_patterns?.patterns || [];
   const trackedCount = Object.values(tracker).filter((entry) => entry.status !== "not_started").length;
 
   function updateTracker(id: string, patch: Partial<TrackerEntry>) {
@@ -336,7 +396,7 @@ export default function CompetitionsPage() {
   }
 
   return (
-    <div className="os-page space-y-6">
+    <div className="os-page space-y-6 pt-2">
       <section className="card p-8">
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div>
@@ -458,8 +518,18 @@ export default function CompetitionsPage() {
             <span className="h-2.5 w-2.5 rounded-full bg-black" />
             {best.match_score || 0}% AI fit
           </div>
+          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+            <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-sky-700">
+              Win probability {best.competition_intelligence?.win_probability ?? "--"}%
+            </span>
+            <span
+              className={`rounded-full border px-3 py-1 ${urgencyChipTone(best.competition_intelligence?.deadline_urgency)}`}
+            >
+              {best.competition_intelligence?.deadline_label || "Deadline TBA"}
+            </span>
+          </div>
           <p className="mt-3 text-xs text-black/56">
-            Score formula: Domain 28% · Stage 20% · Goal 18% · Readiness 15% · Accessibility 10% · Judging 9%
+            Score formula: Domain 24% · Stage 18% · Goal 16% · Readiness 14% · Access 10% · Judge 8% · Prestige 6% · Data 4%
           </p>
           <div className="mt-3 grid gap-2 sm:grid-cols-3">
             {scoreRows(best).map((row) => (
@@ -525,206 +595,352 @@ export default function CompetitionsPage() {
         </div>
       </section>
 
-      <section className="space-y-4">
-        <div className="flex items-center justify-between gap-4">
-          <p className="text-xs uppercase tracking-[0.3em] text-black/45">All opportunities</p>
-          <p className="text-xs text-black/55">
-            Showing {visibleItems.length} of {filtered.length}
-          </p>
+      <section className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr] items-start">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-xs uppercase tracking-[0.3em] text-black/45">All opportunities</p>
+            <p className="text-xs text-black/55">
+              Showing {visibleItems.length} of {filtered.length}
+            </p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            {visibleItems.map((item) => {
+              const track = tracker[item.id] || { status: "not_started" as TrackerStatus, note: "" };
+              return (
+                <article key={item.id} className="card p-6">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xl font-semibold leading-snug">{item.name}</p>
+                      <p className="mt-1 text-sm text-black/62">
+                        {item.category || "General"} · {item.stage_fit || "Any stage"} · {item.location || "Global"}
+                      </p>
+                    </div>
+                    <span className={`text-lg font-semibold whitespace-nowrap ${scoreTone(item.match_score || 0)}`}>
+                      {item.match_score || 0}%
+                    </span>
+                  </div>
+
+                  <p className="mt-3 text-[11px] uppercase tracking-[0.2em] text-black/45">About this competition</p>
+                  <p className="mt-1 text-sm text-black/68 leading-relaxed">
+                    {item.description || item.notes || item.judging_focus || "Student founder competition."}
+                  </p>
+                  <p className="mt-2 text-xs text-black/70">{summarizeCompetition(item)}</p>
+
+                  <div className="mt-4 rounded-xl border border-black/10 bg-white/85 p-3">
+                    <p className="text-[11px] uppercase tracking-[0.2em] text-black/45">Score architecture</p>
+                    <div className="mt-2 space-y-2">
+                      {scoreRows(item).slice(0, 3).map((row) => (
+                        <div key={`${item.id}-${row.label}`}>
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="text-black/65">{row.label}</span>
+                            <span className="font-semibold">{row.value ?? "--"}</span>
+                          </div>
+                          <div className="mt-1 h-1.5 rounded-full bg-black/10 overflow-hidden">
+                            <span className="block h-full bg-black" style={{ width: `${Math.max(0, Math.min(100, row.value || 0))}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                    <span className="px-2 py-1 rounded-full bg-black/8">{item.requires_demo ? "Demo required" : "Demo optional"}</span>
+                    <span className="px-2 py-1 rounded-full bg-black/8">{item.requires_plan ? "Plan required" : "Plan optional"}</span>
+                    <span className="px-2 py-1 rounded-full bg-black/8">
+                      Ages {item.eligibility_age_min || 13}-{item.eligibility_age_max || 19}
+                    </span>
+                    <span className="px-2 py-1 rounded-full bg-black/8">Team up to {item.team_size_max || 8}</span>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 ${urgencyChipTone(
+                        item.competition_intelligence?.deadline_urgency
+                      )}`}
+                    >
+                      <span className={`h-1.5 w-1.5 rounded-full ${urgencyDotTone(item.competition_intelligence?.deadline_urgency)}`} />
+                      {item.competition_intelligence?.deadline_label || "Deadline TBA"}
+                    </span>
+                    <span className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-sky-700">
+                      Win probability {item.competition_intelligence?.win_probability ?? "--"}%
+                    </span>
+                    <span className="inline-flex items-center gap-1 rounded-full border border-black/12 bg-white px-2.5 py-1 text-black/65">
+                      Missing {item.competition_intelligence?.missing_requirements?.length || 0}
+                    </span>
+                  </div>
+
+                  <div className="mt-4 grid gap-2">
+                    <label className="text-xs text-black/55">Pipeline status</label>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={track.status}
+                        onChange={(event) => updateTracker(item.id, { status: event.target.value as TrackerStatus })}
+                        className="flex-1 rounded-xl border border-black/10 bg-white px-3 py-2 text-sm"
+                      >
+                        {trackerOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <span className={`px-2.5 py-1 rounded-full text-[11px] uppercase tracking-[0.18em] ${trackerBadge(track.status)}`}>
+                        {track.status.replace("_", " ")}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    {item.application_link ? (
+                      <a
+                        className="inline-flex px-4 py-2 rounded-full bg-ink text-white text-sm"
+                        href={item.application_link}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Apply
+                      </a>
+                    ) : (
+                      <span className="inline-flex px-4 py-2 rounded-full border border-black/10 text-xs text-black/55">
+                        No application link
+                      </span>
+                    )}
+                    <button
+                      className={`inline-flex px-4 py-2 rounded-full border text-sm ${
+                        favorites[item.id] ? "border-black bg-black text-white" : "border-black/15 bg-white"
+                      }`}
+                      onClick={() =>
+                        setFavorites((prev) => ({
+                          ...prev,
+                          [item.id]: !prev[item.id]
+                        }))
+                      }
+                    >
+                      {favorites[item.id] ? "Favorited" : "Favorite"}
+                    </button>
+                    <button
+                      className={`inline-flex px-4 py-2 rounded-full border text-sm ${
+                        compareIds.includes(item.id) ? "border-black bg-black text-white" : "border-black/15 bg-white"
+                      }`}
+                      onClick={() => toggleCompare(item.id)}
+                    >
+                      {compareIds.includes(item.id) ? "Selected" : "Compare"}
+                    </button>
+                    <button
+                      className={`inline-flex px-4 py-2 rounded-full border text-sm ${
+                        selectedId === item.id ? "border-black bg-black text-white" : "border-black/15 bg-white"
+                      }`}
+                      onClick={() => setSelectedId(item.id)}
+                    >
+                      Details
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+
+          {visibleItems.length < filtered.length && (
+            <div className="pt-1">
+              <button
+                className="px-5 py-2.5 rounded-full border border-black/15 bg-white/85 text-sm"
+                onClick={() => setVisibleCount((prev) => prev + 24)}
+              >
+                Load more competitions
+              </button>
+            </div>
+          )}
+
+          {!loading && filtered.length === 0 && (
+            <p className="py-4 text-sm text-black/60">No competitions match the current filters.</p>
+          )}
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
-          {visibleItems.map((item) => {
-            const track = tracker[item.id] || { status: "not_started" as TrackerStatus, note: "" };
-            return (
-              <article key={item.id} className="card p-6">
-                <div className="flex items-start justify-between gap-4">
+        <aside className="card p-7 xl:sticky xl:top-24">
+          <p className="text-xs uppercase tracking-[0.3em] text-black/45">Competition Detail</p>
+          {!selected ? (
+            <p className="mt-4 text-sm text-black/60">Select a competition to view detailed fit analysis.</p>
+          ) : (
+            <div className="mt-4 space-y-4">
+              <div>
+                <h3 className="text-2xl font-semibold">{selected.name}</h3>
+                <p className="mt-2 text-sm text-black/65">
+                  {selected.category || "General"} · {selected.stage_fit || "Any stage"} · {selected.location || "Global"}
+                </p>
+                <p className="mt-3 text-sm text-black/75">{summarizeCompetition(selected)}</p>
+                <p className="mt-3 text-sm text-black/72">
+                  {selected.description || selected.notes || selected.judging_focus || "No additional description available."}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-black/10 bg-white/80 p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-black/45">Fit score</p>
+                <p className={`mt-2 text-xl font-semibold ${scoreTone(selected.match_score || 0)}`}>
+                  {selected.match_score || 0}%
+                </p>
+                <p className="mt-1 text-xs text-black/55">
+                  Weighted model: strategic fit, execution readiness, access, judging, prestige, and data quality.
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-black/10 bg-white/80 p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-black/45">Score breakdown</p>
+                <div className="mt-3 space-y-3">
+                  {scoreRows(selected).map((row) => (
+                    <div key={`detail-${row.label}`}>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-black/70">
+                          {row.label} <span className="text-black/45">({row.weight})</span>
+                        </p>
+                        <p className="text-xs font-semibold">{row.value ?? "--"}</p>
+                      </div>
+                      <div className="mt-1 h-1.5 rounded-full bg-black/10 overflow-hidden">
+                        <span
+                          className="block h-full bg-black"
+                          style={{ width: `${Math.max(0, Math.min(100, row.value || 0))}%` }}
+                        />
+                      </div>
+                      <p className="mt-1 text-[11px] text-black/55">{row.hint}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-black/10 bg-white/80 p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-black/45">Deadline countdown tracker</p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs ${urgencyChipTone(
+                      selectedIntelligence?.deadline_urgency
+                    )}`}
+                  >
+                    <span className={`h-1.5 w-1.5 rounded-full ${urgencyDotTone(selectedIntelligence?.deadline_urgency)}`} />
+                    {selectedIntelligence?.deadline_label || "Deadline unavailable"}
+                  </span>
+                  {selected.deadline && (
+                    <span className="rounded-full border border-black/12 bg-white px-2.5 py-1 text-xs text-black/65">
+                      {new Date(selected.deadline).toLocaleDateString()}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-3 text-xs text-black/58">
+                  {selectedIntelligence?.deadline_urgency === "passed"
+                    ? "This deadline appears closed. Keep it in your watchlist for next cycle."
+                    : "Use this timer to prioritize near-term applications first."}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-black/10 bg-white/80 p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-black/45">Win probability estimate</p>
+                <div className="mt-3 flex items-end justify-between gap-3">
                   <div>
-                    <p className="text-xl font-semibold leading-snug">{item.name}</p>
-                    <p className="mt-1 text-sm text-black/62">
-                      {item.category || "General"} · {item.stage_fit || "Any stage"} · {item.location || "Global"}
+                    <p className="text-2xl font-semibold text-sky-700">
+                      {selectedIntelligence?.win_probability ?? "--"}%
+                    </p>
+                    <p className="text-xs text-black/60">
+                      {selectedIntelligence?.win_probability_label || "Estimating"} · Confidence{" "}
+                      {selectedIntelligence?.confidence ?? "--"}%
                     </p>
                   </div>
-                  <span className={`text-lg font-semibold whitespace-nowrap ${scoreTone(item.match_score || 0)}`}>
-                    {item.match_score || 0}%
-                  </span>
+                  <div className="rounded-xl border border-black/10 bg-white px-3 py-2 text-right">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-black/45">Readiness</p>
+                    <p className="text-sm font-semibold">{selectedIntelligence?.readiness_percent ?? 0}%</p>
+                  </div>
                 </div>
-
-                <p className="mt-3 text-[11px] uppercase tracking-[0.2em] text-black/45">About this competition</p>
-                <p className="mt-1 text-sm text-black/68 leading-relaxed">
-                  {item.description || item.notes || item.judging_focus || "Student founder competition."}
+                <p className="mt-3 text-xs text-black/58">
+                  Probability uses fit score, readiness, requirement gaps, deadline urgency, and judging alignment.
                 </p>
-                <p className="mt-2 text-xs text-black/70">{summarizeCompetition(item)}</p>
+              </div>
 
-                <div className="mt-4 rounded-xl border border-black/10 bg-white/85 p-3">
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-black/45">Score breakdown</p>
-                  <div className="mt-2 grid grid-cols-3 gap-2">
-                    {scoreRows(item).map((row) => (
-                      <div key={`${item.id}-${row.label}`} className="rounded-lg bg-black/5 px-2 py-1.5">
-                        <p className="text-[10px] uppercase tracking-[0.16em] text-black/45">{row.label}</p>
-                        <p className="text-xs font-semibold">{row.value ?? "--"}</p>
+              <div className="rounded-2xl border border-black/10 bg-white/80 p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-black/45">Auto-application checklist</p>
+                <div className="mt-3 space-y-2">
+                  {selectedChecklist.slice(0, 6).map((entry) => (
+                    <div
+                      key={`${selected.id}-${entry.id}`}
+                      className="flex items-start gap-2 rounded-xl border border-black/10 bg-white px-3 py-2"
+                    >
+                      <span
+                        className={`mt-0.5 h-4 w-4 rounded-full border ${
+                          entry.done ? "border-emerald-500 bg-emerald-500" : "border-black/25 bg-white"
+                        }`}
+                      />
+                      <div>
+                        <p className="text-sm text-black/80">{entry.label}</p>
+                        {entry.required ? (
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-black/45">Required</p>
+                        ) : (
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-black/45">Optional</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-black/10 bg-white/80 p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-black/45">You're missing X to qualify</p>
+                <p className="mt-2 text-sm text-black/78">
+                  {selectedIntelligence?.missing_to_qualify || selectedIntelligence?.qualification_gap || "No missing blockers."}
+                </p>
+                {selectedMissing.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    {selectedMissing.slice(0, 4).map((missing) => (
+                      <div key={missing} className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                        {missing}
                       </div>
                     ))}
                   </div>
-                </div>
-
-                <div className="mt-4 flex flex-wrap gap-2 text-xs">
-                  <span className="px-2 py-1 rounded-full bg-black/8">{item.requires_demo ? "Demo required" : "Demo optional"}</span>
-                  <span className="px-2 py-1 rounded-full bg-black/8">{item.requires_plan ? "Plan required" : "Plan optional"}</span>
-                  <span className="px-2 py-1 rounded-full bg-black/8">
-                    Ages {item.eligibility_age_min || 13}-{item.eligibility_age_max || 19}
-                  </span>
-                  <span className="px-2 py-1 rounded-full bg-black/8">Team up to {item.team_size_max || 8}</span>
-                </div>
-
-                <div className="mt-4 grid gap-2">
-                  <label className="text-xs text-black/55">Pipeline status</label>
-                  <div className="flex items-center gap-2">
-                    <select
-                      value={track.status}
-                      onChange={(event) => updateTracker(item.id, { status: event.target.value as TrackerStatus })}
-                      className="flex-1 rounded-xl border border-black/10 bg-white px-3 py-2 text-sm"
-                    >
-                      {trackerOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                    <span className={`px-2.5 py-1 rounded-full text-[11px] uppercase tracking-[0.18em] ${trackerBadge(track.status)}`}>
-                      {track.status.replace("_", " ")}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="mt-5 flex flex-wrap gap-2">
-                  {item.application_link ? (
-                    <a
-                      className="inline-flex px-4 py-2 rounded-full bg-ink text-white text-sm"
-                      href={item.application_link}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Apply
-                    </a>
-                  ) : (
-                    <span className="inline-flex px-4 py-2 rounded-full border border-black/10 text-xs text-black/55">
-                      No application link
-                    </span>
-                  )}
-                  <button
-                    className={`inline-flex px-4 py-2 rounded-full border text-sm ${
-                      favorites[item.id] ? "border-black bg-black text-white" : "border-black/15 bg-white"
-                    }`}
-                    onClick={() =>
-                      setFavorites((prev) => ({
-                        ...prev,
-                        [item.id]: !prev[item.id]
-                      }))
-                    }
-                  >
-                    {favorites[item.id] ? "Favorited" : "Favorite"}
-                  </button>
-                  <button
-                    className={`inline-flex px-4 py-2 rounded-full border text-sm ${
-                      compareIds.includes(item.id) ? "border-black bg-black text-white" : "border-black/15 bg-white"
-                    }`}
-                    onClick={() => toggleCompare(item.id)}
-                  >
-                    {compareIds.includes(item.id) ? "Selected" : "Compare"}
-                  </button>
-                  <button
-                    className={`inline-flex px-4 py-2 rounded-full border text-sm ${
-                      selectedId === item.id ? "border-black bg-black text-white" : "border-black/15 bg-white"
-                    }`}
-                    onClick={() => setSelectedId(item.id)}
-                  >
-                    Details
-                  </button>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-
-        {visibleItems.length < filtered.length && (
-          <div className="pt-1">
-            <button
-              className="px-5 py-2.5 rounded-full border border-black/15 bg-white/85 text-sm"
-              onClick={() => setVisibleCount((prev) => prev + 24)}
-            >
-              Load more competitions
-            </button>
-          </div>
-        )}
-
-        {!loading && filtered.length === 0 && (
-          <p className="py-4 text-sm text-black/60">No competitions match the current filters.</p>
-        )}
-      </section>
-
-      {selected && (
-        <section className="card p-7">
-          <p className="text-xs uppercase tracking-[0.3em] text-black/45">Competition Detail</p>
-          <div className="mt-4 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-            <div>
-              <h3 className="text-2xl font-semibold">{selected.name}</h3>
-              <p className="mt-2 text-sm text-black/65">
-                {selected.category || "General"} · {selected.stage_fit || "Any stage"} · {selected.location || "Global"}
-              </p>
-              <p className="mt-4 text-sm text-black/75">{summarizeCompetition(selected)}</p>
-              <p className="mt-3 text-[11px] uppercase tracking-[0.2em] text-black/45">Description</p>
-              <p className="mt-3 text-sm text-black/72">
-                {selected.description || selected.notes || selected.judging_focus || "No additional description available."}
-              </p>
-              <p className="mt-4 text-xs uppercase tracking-[0.2em] text-black/45">Competition progression</p>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                {selectedProgression.map((step, index) => (
-                  <div key={`${selected.id}-progression-${index}`} className="inline-flex items-center gap-2">
-                    <span className="rounded-full border border-black/12 bg-white/85 px-3 py-1.5 text-xs text-black/75">
-                      {step}
-                    </span>
-                    {index < selectedProgression.length - 1 && <span className="text-black/40">&rarr;</span>}
-                  </div>
-                ))}
+                )}
               </div>
-              <p className="mt-4 text-xs uppercase tracking-[0.2em] text-black/45">Judging focus</p>
-              <p className="mt-1 text-sm text-black/72">{selected.judging_focus || "Execution quality and clarity."}</p>
-              <p className="mt-4 text-xs uppercase tracking-[0.2em] text-black/45">Score components</p>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                {scoreRows(selected).map((row) => (
-                  <div key={`detail-${row.label}`} className="rounded-xl border border-black/10 bg-white/80 px-3 py-2">
-                    <p className="text-[10px] uppercase tracking-[0.16em] text-black/45">{row.label}</p>
-                    <p className="text-sm font-semibold">{row.value ?? "--"}</p>
-                  </div>
-                ))}
-              </div>
-              <p className="mt-4 text-xs uppercase tracking-[0.2em] text-black/45">Why this fits your project</p>
-              <div className="mt-2 space-y-2">
-                {fitReasons(selected, project).map((reason) => (
-                  <div key={reason} className="rounded-xl border border-black/10 bg-white/80 px-3 py-2 text-sm text-black/78">
-                    {reason}
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="space-y-4">
+
               <div className="rounded-2xl border border-black/10 bg-white/80 p-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-black/45">Application Profile</p>
-                <p className={`mt-2 text-sm font-semibold ${scoreTone(selected.match_score || 0)}`}>
-                  AI fit score: {selected.match_score || 0}%
+                <p className="text-xs uppercase tracking-[0.2em] text-black/45">Historical winner patterns</p>
+                <p className="mt-2 text-sm text-black/70">
+                  {selectedIntelligence?.winner_patterns?.summary || "Pattern analysis unavailable for this competition."}
                 </p>
-                <p className="mt-1 text-xs text-black/55">
-                  Formula weights: domain 28, stage 20, goal 18, readiness 15, accessibility 10, judging 9.
-                </p>
-                <p className="mt-1 text-sm text-black/75">
-                  Eligibility: Ages {selected.eligibility_age_min || 13}-{selected.eligibility_age_max || 19}
-                </p>
-                <p className="mt-1 text-sm text-black/75">Team size: Up to {selected.team_size_max || 8}</p>
-                <p className="mt-1 text-sm text-black/75">
-                  Deadline: {selected.deadline ? new Date(selected.deadline).toLocaleDateString() : "Rolling / Not listed"}
-                </p>
+                <div className="mt-3 space-y-2">
+                  {selectedPatterns.length > 0
+                    ? selectedPatterns.slice(0, 3).map((pattern) => (
+                        <div key={`${selected.id}-${pattern.title}`} className="rounded-xl border border-black/10 bg-white px-3 py-2">
+                          <p className="text-sm font-medium text-black/85">{pattern.title}</p>
+                          <p className="mt-1 text-xs text-black/65">{pattern.insight}</p>
+                          <p className="mt-1 text-xs text-black/55">Action: {pattern.action}</p>
+                        </div>
+                      ))
+                    : (selectedIntelligence?.winner_patterns?.signals || []).slice(0, 3).map((signal) => (
+                        <div key={signal} className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm text-black/75">
+                          {signal}
+                        </div>
+                      ))}
+                </div>
               </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-black/45">Competition progression</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {selectedProgression.map((step, index) => (
+                    <div key={`${selected.id}-progression-${index}`} className="inline-flex items-center gap-2">
+                      <span className="rounded-full border border-black/12 bg-white/85 px-3 py-1.5 text-xs text-black/75">
+                        {step}
+                      </span>
+                      {index < selectedProgression.length - 1 && <span className="text-black/40">&rarr;</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-black/45">Why this fits your project</p>
+                <div className="mt-2 space-y-2">
+                  {fitReasons(selected, project).map((reason) => (
+                    <div key={reason} className="rounded-xl border border-black/10 bg-white/80 px-3 py-2 text-sm text-black/78">
+                      {reason}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               <div className="rounded-2xl border border-black/10 bg-white/80 p-4">
                 <p className="text-xs uppercase tracking-[0.2em] text-black/45">Submission Notes</p>
                 <textarea
@@ -735,6 +951,7 @@ export default function CompetitionsPage() {
                   placeholder="Keep links, requirements, and submission plan notes here."
                 />
               </div>
+
               {selected.application_link && (
                 <a
                   className="inline-flex w-full justify-center px-4 py-2.5 rounded-full bg-ink text-white text-sm"
@@ -746,9 +963,9 @@ export default function CompetitionsPage() {
                 </a>
               )}
             </div>
-          </div>
-        </section>
-      )}
+          )}
+        </aside>
+      </section>
 
       {compareItems.length > 0 && (
         <section className="card p-7">

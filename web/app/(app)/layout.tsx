@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import AppShell from "../../components/AppShell";
 import { supabase } from "../../lib/supabaseClient";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [checked, setChecked] = useState(false);
+  const pathname = usePathname();
 
   useEffect(() => {
     async function gate() {
@@ -15,18 +17,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         window.location.href = "/login";
         return;
       }
-      const res = await fetch(`/api/onboarding/status?user_id=${userId}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (!data?.has_completed_onboarding) {
-          window.location.href = "/onboarding";
-          return;
+      if (pathname !== "/upgrade") {
+        const res = await fetch(`/api/onboarding/status?user_id=${userId}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (!data?.has_completed_onboarding) {
+            window.location.href = "/onboarding";
+            return;
+          }
         }
       }
       setChecked(true);
     }
     gate();
-  }, []);
+  }, [pathname]);
 
   if (!checked) {
     return (

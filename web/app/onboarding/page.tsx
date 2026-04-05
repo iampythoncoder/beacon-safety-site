@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
+import { withAuthHeaders } from "../../lib/authFetch";
 
 const ideaStageOptions = [
   "Just a rough idea",
@@ -153,11 +154,16 @@ export default function OnboardingPage() {
     };
 
     try {
+      const headers = await withAuthHeaders({ "Content-Type": "application/json" });
       const res = await fetch("/api/generate/plan", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ user_id: session.user.id, project: projectInput, onboarding: survey })
       });
+      if (res.status === 402) {
+        window.location.href = "/upgrade";
+        return;
+      }
       if (!res.ok) {
         throw new Error("Failed to generate plan");
       }

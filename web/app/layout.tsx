@@ -1,14 +1,24 @@
+import type { Metadata } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
 
-export const metadata = {
-  title: "LaunchLab",
-  description: "Startup execution platform for high school founders"
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap"
+});
+
+export const metadata: Metadata = {
+  title: {
+    default: "BEACON",
+    template: "%s"
+  },
+  description: "BEACON is a personal safety device for real-world emergencies."
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="gradient-bg min-h-screen">{children}</body>
+      <body className={`${inter.className} min-h-screen bg-[#f6f6f4] text-black antialiased`}>{children}</body>
     </html>
   );
 }

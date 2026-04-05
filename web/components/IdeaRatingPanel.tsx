@@ -18,7 +18,7 @@ const rows = [
   { key: "complexity", label: "Complexity" },
   { key: "market_fit", label: "Market Fit" },
   { key: "feasibility", label: "Feasibility" },
-  { key: "competition_density", label: "Competition Density" }
+  { key: "competition_density", label: "Competitive Edge" }
 ];
 
 function resolveDetail(detail: unknown) {
@@ -29,6 +29,12 @@ function resolveDetail(detail: unknown) {
     return value.reason || value.improve_with || "";
   }
   return "";
+}
+
+function scorePill(value: number) {
+  if (value >= 75) return { label: "Strong", tone: "is-strong" };
+  if (value >= 60) return { label: "Promising", tone: "is-promising" };
+  return { label: "Needs Work", tone: "is-risky" };
 }
 
 export function IdeaRatingPanel({
@@ -62,11 +68,15 @@ export function IdeaRatingPanel({
           const score = Number((ideaRating as any)?.[key]);
           const value = Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : 0;
           const detail = resolveDetail((details || {})[key]);
+          const pill = scorePill(value);
           return (
-            <div key={key} className="idea-rating-row">
+            <div key={key} className={clsx("idea-rating-row", pill.tone)}>
               <div className="idea-rating-row-top">
                 <span>{label}</span>
-                <strong>{value}/100</strong>
+                <div className="idea-rating-row-metrics">
+                  <em className={clsx("idea-rating-pill", pill.tone)}>{pill.label}</em>
+                  <strong>{value}/100</strong>
+                </div>
               </div>
               <div className="idea-rating-bar">
                 <span style={{ width: `${value}%` }} />

@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { createGroqClient } from "../../../../lib/groq";
+import { requireProEntitlement } from "../../../../lib/proEntitlement";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   try {
+    const entitlement = await requireProEntitlement(req);
+    if ("error" in entitlement) return entitlement.error;
+
     const { messages } = await req.json();
     if (!Array.isArray(messages)) {
       return NextResponse.json({ error: "Missing messages" }, { status: 400 });

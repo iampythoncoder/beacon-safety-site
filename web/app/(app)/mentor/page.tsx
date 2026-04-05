@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../../lib/supabaseClient";
+import { withAuthHeaders } from "../../../lib/authFetch";
 
 type MentorSummary = {
   summary?: string;
@@ -22,6 +23,8 @@ export default function MentorPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
+  const [isPro, setIsPro] = useState(false);
+  const [planStatus, setPlanStatus] = useState("inactive");
   const endRef = useRef<HTMLDivElement | null>(null);
 
   const quickPrompts = useMemo(
@@ -40,6 +43,13 @@ export default function MentorPage() {
       const sessionUserId = session.data.session?.user?.id;
       if (!sessionUserId) return;
       setUserId(sessionUserId);
+      const billingHeaders = await withAuthHeaders();
+      const billingRes = await fetch("/api/stripe/status", { method: "GET", headers: billingHeaders });
+      if (billingRes.ok) {
+        const billing = await billingRes.json();
+        setIsPro(Boolean(billing?.is_pro));
+        setPlanStatus(String(billing?.plan_status || "inactive"));
+      }
 
       setReady(false);
       const projectRes = await fetch(`/api/projects/latest?user_id=${sessionUserId}`);
@@ -113,6 +123,11 @@ export default function MentorPage() {
   }, [messages, loading]);
 
   async function sendMessage(prefilled?: string) {
+    if (!isPro) {
+      setError("LaunchLab Pro required for AI mentor.");
+      window.location.href = "/upgrade";
+      return;
+    }
     const text = (prefilled ?? input).trim();
     if (!text) return;
     const nextMessages: Message[] = [...messages, { role: "user", content: text }];
@@ -133,13 +148,21 @@ export default function MentorPage() {
       .filter(Boolean)
       .join("\n");
 
+    const headers = await withAuthHeaders({ "Content-Type": "application/json" });
     const res = await fetch("/api/groq/chat", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({
         messages: [{ role: "system", content: context }, ...nextMessages]
       })
     });
+
+    if (res.status === 402) {
+      setError("LaunchLab Pro required for AI mentor. Redirecting to upgrade...");
+      window.location.href = "/upgrade";
+      setLoading(false);
+      return;
+    }
 
     if (res.ok) {
       const data = await res.json();
@@ -170,24 +193,41 @@ export default function MentorPage() {
             </p>
             {projectContext && <p className="mt-2 text-xs text-black/55">{projectContext}</p>}
           </div>
-          <button
-            className="px-4 py-2 rounded-full border border-black/15 bg-white/85 text-sm"
-            onClick={clearChat}
-            disabled={messages.length === 0}
-          >
-            Clear chat
-          </button>
+          <div className="flex items-center gap-2">
+            <span
+              className={`px-3 py-1 rounded-full text-[11px] uppercase tracking-[0.18em] ${
+                isPro ? "bg-emerald-600 text-white" : "bg-amber-100 text-amber-900"
+              }`}
+            >
+              {isPro ? "PRO" : `FREE (${planStatus})`}
+            </span>
+            <button
+              className="px-4 py-2 rounded-full border border-black/15 bg-white/85 text-sm"
+              onClick={clearChat}
+              disabled={messages.length === 0 || !isPro}
+            >
+              Clear chat
+            </button>
+          </div>
         </div>
       </section>
 
       <section className="card p-6">
+        {!isPro && (
+          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            AI mentor is a Pro feature. Upgrade to unlock full chat.
+            <a href="/upgrade" className="ml-2 underline font-medium">
+              Upgrade now
+            </a>
+          </div>
+        )}
         <div className="flex flex-wrap gap-2">
           {quickPrompts.map((prompt) => (
             <button
               key={prompt}
               className="rounded-full border border-black/12 bg-white/80 px-4 py-2 text-xs text-black/72 transition hover:bg-black hover:text-white"
               onClick={() => sendMessage(prompt)}
-              disabled={loading}
+              disabled={loading || !isPro}
             >
               {prompt}
             </button>
@@ -222,7 +262,7 @@ export default function MentorPage() {
         <div className="mt-4 flex gap-2">
           <textarea
             className="flex-1 rounded-2xl border border-black/10 bg-white/86 px-4 py-3 text-sm min-h-[60px]"
-            placeholder="Ask the mentor..."
+            placeholder={isPro ? "Ask the mentor..." : "Upgrade to Pro to use AI mentor chat"}
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
@@ -231,11 +271,12 @@ export default function MentorPage() {
                 sendMessage();
               }
             }}
+            disabled={!isPro}
           />
           <button
             className="self-end px-5 py-2.5 rounded-full bg-ink text-white text-sm"
             onClick={() => sendMessage()}
-            disabled={loading}
+            disabled={loading || !isPro}
           >
             {loading ? "Sending…" : "Send"}
           </button>

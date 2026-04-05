@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "../../../../lib/supabaseServer";
 import { createGroqClient, generateRoadmap } from "../../../../lib/groq";
 import { computeLegacyProgress, isMissingTableError, normalizeRoadmap } from "../../../../lib/legacyRoadmap";
+import { requireProEntitlement } from "../../../../lib/proEntitlement";
 
 export const runtime = "nodejs";
 
@@ -64,7 +65,15 @@ async function insertRoadmap(projectId: string, roadmap: any[]) {
 
 export async function POST(req: Request) {
   try {
+    const entitlement = await requireProEntitlement(req);
+    if ("error" in entitlement) return entitlement.error;
+
     const { project_id, user_id } = await req.json();
+    if (user_id && user_id !== entitlement.user.id) {
+      return NextResponse.json({ error: "Forbidden: user mismatch" }, { status: 403 });
+    }
+    const resolvedUserId = entitlement.user.id;
+
     let resolvedProjectId: string | null = null;
     let project: any = null;
     let legacyRow: any = null;
@@ -84,11 +93,11 @@ export async function POST(req: Request) {
       }
     }
 
-    if (!project && !useLegacy && user_id) {
+    if (!project && !useLegacy && resolvedUserId) {
       const { data, error } = await supabaseServer
         .from("projects")
         .select("*")
-        .eq("user_id", user_id)
+        .eq("user_id", resolvedUserId)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -104,11 +113,11 @@ export async function POST(req: Request) {
       }
     }
 
-    if (!project && !useLegacy && user_id) {
+    if (!project && !useLegacy && resolvedUserId) {
       const { data: profile } = await supabaseServer
         .from("startup_profile")
         .select("*")
-        .eq("user_id", user_id)
+        .eq("user_id", resolvedUserId)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -119,7 +128,7 @@ export async function POST(req: Request) {
       const { data, error } = await supabaseServer
         .from("projects")
         .insert({
-          user_id,
+          user_id: resolvedUserId,
           name: profileName,
           description: profileIdea || "Student startup project",
           domain: profile?.domains || "General",
@@ -162,11 +171,11 @@ export async function POST(req: Request) {
         if (data) legacyRow = data;
       }
 
-      if (!legacyRow && user_id) {
+      if (!legacyRow && resolvedUserId) {
         const { data, error } = await supabaseServer
           .from("user_projects")
           .select("*")
-          .eq("user_id", user_id)
+          .eq("user_id", resolvedUserId)
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -174,7 +183,7 @@ export async function POST(req: Request) {
         if (data) legacyRow = data;
       }
 
-      if (!legacyRow && user_id) {
+      if (!legacyRow && resolvedUserId) {
         const defaultInput = {
           project_name: "Untitled Startup",
           project_description: "Student startup project",
@@ -188,7 +197,7 @@ export async function POST(req: Request) {
         const { data, error } = await supabaseServer
           .from("user_projects")
           .insert({
-            user_id,
+            user_id: resolvedUserId,
             project_input: defaultInput,
             idea_rating: {},
             lean_business_plan: {},
@@ -231,11 +240,11 @@ export async function POST(req: Request) {
         .limit(1)
         .maybeSingle();
       onboarding = data || null;
-    } else if (user_id) {
+    } else if (resolvedUserId) {
       const { data } = await supabaseServer
         .from("startup_profile")
         .select("*")
-        .eq("user_id", user_id)
+        .eq("user_id", resolvedUserId)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -294,7 +303,7 @@ export async function POST(req: Request) {
           const { error: legacyUpsertError } = await supabaseServer.from("user_projects").upsert(
             {
               id: resolvedProjectId,
-              user_id: project?.user_id || user_id || null,
+              user_id: project?.user_id || resolvedUserId || null,
               project_input:
                 project && typeof project === "object"
                   ? {

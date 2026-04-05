@@ -132,6 +132,26 @@ create table if not exists users (
   created_at timestamptz default now()
 );
 
+create table if not exists profiles (
+  id uuid primary key,
+  email text,
+  stripe_customer_id text,
+  stripe_subscription_id text,
+  plan text not null default 'free',
+  plan_status text not null default 'inactive',
+  plan_updated_at timestamptz,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+alter table profiles add column if not exists stripe_customer_id text;
+alter table profiles add column if not exists stripe_subscription_id text;
+alter table profiles add column if not exists plan text not null default 'free';
+alter table profiles add column if not exists plan_status text not null default 'inactive';
+alter table profiles add column if not exists plan_updated_at timestamptz;
+
+create unique index if not exists profiles_stripe_customer_id_idx on profiles (stripe_customer_id);
+
 create table if not exists startup_profile (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references users(user_id) on delete cascade,

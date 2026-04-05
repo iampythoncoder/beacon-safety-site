@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../../lib/supabaseClient";
+import { withAuthHeaders } from "../../../lib/authFetch";
 
 type StageTask = {
   id: string;
@@ -41,11 +42,32 @@ type OnboardingAnswers = {
   idea_sentence?: string;
 };
 
+type ValidationStatus = {
+  interviews_target: number;
+  interviews_done: number;
+  surveys_target: number;
+  surveys_done: number;
+  waitlist_target: number;
+  waitlist_count: number;
+  milestone_ready: boolean;
+  missing_requirements: string[];
+  readiness_score: number;
+  gating_note: string;
+};
+
 type Resource = {
   title: string;
   type: "Video" | "Course" | "Guide" | "Template";
   url: string;
   tags: string[];
+};
+
+type PlatformLink = {
+  tool: string;
+  website_url: string;
+  docs_url: string;
+  video_url?: string;
+  description: string;
 };
 
 type ViewMode = "stages" | "board";
@@ -65,8 +87,139 @@ const roadmapResources: Resource[] = [
   { title: "Canva Pitch Deck Crash Course", type: "Video", url: "https://www.canva.com/designschool/tutorials/presentations/", tags: ["pitch", "deck", "story"] },
   { title: "Founder Institute: MVP Toolkit", type: "Course", url: "https://fi.co/insight", tags: ["mvp", "prototype", "build"] },
   { title: "Product Hunt Launch Checklist", type: "Template", url: "https://www.producthunt.com/launch-checklist", tags: ["launch", "marketing", "growth"] },
-  { title: "Coursera: Entrepreneurship Strategy", type: "Course", url: "https://www.coursera.org/learn/entrepreneurship-strategy", tags: ["strategy", "market", "planning"] }
+  { title: "Coursera: Entrepreneurship Strategy", type: "Course", url: "https://www.coursera.org/learn/entrepreneurship-strategy", tags: ["strategy", "market", "planning"] },
+  { title: "Supabase Auth + Database YouTube Tutorial", type: "Video", url: "https://www.youtube.com/watch?v=dU7GwCOgvNY", tags: ["supabase", "auth", "database", "backend"] },
+  { title: "Vercel Next.js Deployment Guide", type: "Video", url: "https://www.youtube.com/watch?v=s2b8Sx6x4XQ", tags: ["vercel", "deploy", "next", "website"] },
+  { title: "GitHub Flow Guide", type: "Guide", url: "https://docs.github.com/en/get-started/using-github/github-flow", tags: ["github", "workflow", "version"] },
+  { title: "OpenAI Prompt Engineering Guide", type: "Guide", url: "https://platform.openai.com/docs/guides/prompt-engineering", tags: ["ai", "openai", "prompt", "ml"] },
+  { title: "Bolt New Product Walkthrough", type: "Video", url: "https://www.youtube.com/watch?v=Y6M8o5mKkEw", tags: ["bolt", "build", "landing", "mvp"] },
+  { title: "Lovable Getting Started", type: "Guide", url: "https://docs.lovable.dev/", tags: ["lovable", "mvp", "build", "landing"] },
+  { title: "Figma Basics for Founders", type: "Video", url: "https://www.youtube.com/watch?v=FTFaQWZBqQ8", tags: ["figma", "design", "prototype"] },
+  { title: "Reddit Founder Marketing Playbook", type: "Video", url: "https://www.youtube.com/watch?v=8ieI7vB8l0A", tags: ["reddit", "marketing", "launch", "growth"] },
+  { title: "Stripe Pricing Strategy Guide", type: "Guide", url: "https://stripe.com/resources/more/what-is-pricing-strategy", tags: ["pricing", "revenue", "market"] }
 ];
+
+const platformDirectory: Record<string, PlatformLink> = {
+  lovable: {
+    tool: "Lovable",
+    website_url: "https://lovable.dev",
+    docs_url: "https://docs.lovable.dev/",
+    video_url: "https://www.youtube.com/watch?v=Y6M8o5mKkEw",
+    description: "Generate full-stack MVP screens and flows quickly."
+  },
+  bolt: {
+    tool: "Bolt",
+    website_url: "https://bolt.new",
+    docs_url: "https://support.bolt.new/",
+    video_url: "https://www.youtube.com/watch?v=Y6M8o5mKkEw",
+    description: "Rapidly scaffold landing pages and product flows."
+  },
+  supabase: {
+    tool: "Supabase",
+    website_url: "https://supabase.com",
+    docs_url: "https://supabase.com/docs",
+    video_url: "https://www.youtube.com/watch?v=dU7GwCOgvNY",
+    description: "Auth, Postgres, storage, and server-side data for your MVP."
+  },
+  vercel: {
+    tool: "Vercel",
+    website_url: "https://vercel.com",
+    docs_url: "https://vercel.com/docs",
+    video_url: "https://www.youtube.com/watch?v=s2b8Sx6x4XQ",
+    description: "Deploy your product and preview updates instantly."
+  },
+  notion: {
+    tool: "Notion",
+    website_url: "https://www.notion.so",
+    docs_url: "https://www.notion.so/help",
+    video_url: "https://www.youtube.com/watch?v=ODl5FOMu8kI",
+    description: "Run execution docs, PRDs, and startup operating cadence."
+  },
+  github: {
+    tool: "GitHub",
+    website_url: "https://github.com",
+    docs_url: "https://docs.github.com",
+    video_url: "https://www.youtube.com/watch?v=8JJ101D3knE",
+    description: "Version control, collaboration, and build history."
+  },
+  claudecli: {
+    tool: "Claude CLI",
+    website_url: "https://www.anthropic.com",
+    docs_url: "https://docs.anthropic.com/",
+    video_url: "https://www.youtube.com/watch?v=JfB3m5h4V_w",
+    description: "Speed up implementation and debugging from terminal workflows."
+  },
+  codex: {
+    tool: "Codex",
+    website_url: "https://platform.openai.com",
+    docs_url: "https://platform.openai.com/docs",
+    video_url: "https://www.youtube.com/watch?v=8mAITcNt710",
+    description: "Generate code edits and architecture changes with guardrails."
+  },
+  openai: {
+    tool: "OpenAI",
+    website_url: "https://openai.com",
+    docs_url: "https://platform.openai.com/docs",
+    video_url: "https://www.youtube.com/watch?v=7xTGNNLPyMI",
+    description: "Build AI-powered features and evaluator loops."
+  },
+  webflow: {
+    tool: "Webflow",
+    website_url: "https://webflow.com",
+    docs_url: "https://university.webflow.com",
+    video_url: "https://www.youtube.com/watch?v=w5w4h2Nf7dw",
+    description: "Design and launch conversion-focused marketing pages."
+  },
+  framer: {
+    tool: "Framer",
+    website_url: "https://www.framer.com",
+    docs_url: "https://www.framer.com/learn/",
+    video_url: "https://www.youtube.com/watch?v=a8YfJjB-f2Q",
+    description: "Build polished, animated landing pages quickly."
+  },
+  canva: {
+    tool: "Canva",
+    website_url: "https://www.canva.com",
+    docs_url: "https://www.canva.com/designschool/",
+    video_url: "https://www.youtube.com/watch?v=FqA5Y8NT9hA",
+    description: "Create pitch decks, visual proof, and launch collateral."
+  },
+  reddit: {
+    tool: "Reddit",
+    website_url: "https://www.reddit.com",
+    docs_url: "https://www.redditinc.com/advertising",
+    video_url: "https://www.youtube.com/watch?v=8ieI7vB8l0A",
+    description: "Validate demand and acquire first users through communities."
+  },
+  figma: {
+    tool: "Figma",
+    website_url: "https://www.figma.com",
+    docs_url: "https://help.figma.com",
+    video_url: "https://www.youtube.com/watch?v=FTFaQWZBqQ8",
+    description: "Create wireframes and product mocks before coding."
+  },
+  googleforms: {
+    tool: "Google Forms",
+    website_url: "https://forms.google.com",
+    docs_url: "https://support.google.com/docs/topic/6063584",
+    video_url: "https://www.youtube.com/watch?v=7_tooBvY6PY",
+    description: "Collect interview responses and validation data quickly."
+  },
+  googleanalytics: {
+    tool: "Google Analytics",
+    website_url: "https://analytics.google.com",
+    docs_url: "https://support.google.com/analytics",
+    video_url: "https://www.youtube.com/watch?v=Q3f5fR9z2X4",
+    description: "Track acquisition, conversion funnels, and retention behavior."
+  },
+  plausible: {
+    tool: "Plausible",
+    website_url: "https://plausible.io",
+    docs_url: "https://plausible.io/docs",
+    video_url: "https://www.youtube.com/watch?v=NNsHtb2nEwU",
+    description: "Simple privacy-first analytics for launch experiments."
+  }
+};
 
 function scoreResource(task: StageTask, resource: Resource) {
   const haystack = `${task.task} ${task.tools || ""} ${task.deliverables || ""}`.toLowerCase();
@@ -80,6 +233,92 @@ function getTaskResources(task: StageTask) {
     .sort((a, b) => b.score - a.score)
     .slice(0, 5)
     .map((entry) => entry.resource);
+}
+
+function normalizeToolKey(tool: string) {
+  return tool.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function getPlatformLinks(task: StageTask, suggestedTools: string[]) {
+  const taskTools = (task.tools || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const seen = new Set<string>();
+  const links: PlatformLink[] = [];
+
+  for (const tool of [...taskTools, ...suggestedTools]) {
+    const key = normalizeToolKey(tool);
+    const entry = platformDirectory[key];
+    if (!entry || seen.has(entry.tool)) continue;
+    seen.add(entry.tool);
+    links.push(entry);
+    if (links.length >= 6) break;
+  }
+
+  return links;
+}
+
+function getTaskVideos(task: StageTask, platformLinks: PlatformLink[]) {
+  const fromResources = getTaskResources(task).filter((resource) => resource.type === "Video");
+  const fromPlatforms = platformLinks
+    .filter((link) => Boolean(link.video_url))
+    .map((link) => ({
+      title: `${link.tool} tutorial`,
+      type: "Video" as const,
+      url: String(link.video_url),
+      tags: [normalizeToolKey(link.tool)]
+    }));
+
+  const unique = new Map<string, Resource>();
+  for (const item of [...fromResources, ...fromPlatforms]) {
+    if (unique.has(item.url)) continue;
+    unique.set(item.url, item);
+  }
+  return Array.from(unique.values()).slice(0, 5);
+}
+
+function getStageResources(stage: Stage) {
+  const unique = new Map<string, Resource>();
+  for (const task of stage.tasks || []) {
+    for (const resource of getTaskResources(task)) {
+      if (unique.has(resource.url)) continue;
+      unique.set(resource.url, resource);
+      if (unique.size >= 4) break;
+    }
+    if (unique.size >= 4) break;
+  }
+  return Array.from(unique.values());
+}
+
+function buildStageNarrative(stage: Stage, project: ProjectProfile | null, onboarding: OnboardingAnswers | null) {
+  const goal = project?.goal || onboarding?.primary_goal || "startup execution";
+  const domain = project?.domain || normalizeDomains(onboarding?.domains) || "your domain";
+  const totalTasks = (stage.tasks || []).length;
+  const completedTasks = (stage.tasks || []).filter((task) => task.completed).length;
+  const nextAction = (stage.tasks || []).find((task) => !task.completed)?.task || "Complete remaining tasks.";
+  return {
+    mission: `Drive measurable progress in ${domain} toward ${goal.toLowerCase()}.`,
+    status: `${completedTasks}/${totalTasks} tasks complete.`,
+    nextAction
+  };
+}
+
+function buildExecutionChecklist(task: StageTask, project: ProjectProfile | null) {
+  const goal = project?.goal || "founder progress";
+  const taskName = task.task;
+  const tools = (task.tools || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  return [
+    `Kickoff: write a clear success condition for "${taskName}".`,
+    tools.length ? `Setup: connect ${tools.join(", ")} before implementation.` : "Setup: choose your stack and tracking method.",
+    "Build: ship a working draft within 48 hours.",
+    `Validate: gather user feedback tied to ${goal.toLowerCase()}.`,
+    "Wrap-up: document proof (link, metric, and next milestone)."
+  ];
 }
 
 function makeExecutionSteps(task: StageTask) {
@@ -186,6 +425,8 @@ export default function RoadmapPage() {
   const [stages, setStages] = useState<Stage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [isPro, setIsPro] = useState(false);
+  const [planStatus, setPlanStatus] = useState("inactive");
   const [activeTaskKey, setActiveTaskKey] = useState<string>("");
 
   const [viewMode, setViewMode] = useState<ViewMode>("stages");
@@ -195,6 +436,14 @@ export default function RoadmapPage() {
   const [collapsedStages, setCollapsedStages] = useState<Record<string, boolean>>({});
   const [taskNotes, setTaskNotes] = useState<Record<string, string>>({});
   const [taskConfidence, setTaskConfidence] = useState<Record<string, number>>({});
+  const [validationGate, setValidationGate] = useState<ValidationStatus | null>(null);
+
+  async function refreshValidation(id: string) {
+    const res = await fetch(`/api/validation?project_id=${id}`);
+    if (!res.ok) return;
+    const payload = await res.json().catch(() => ({}));
+    setValidationGate(payload?.status || null);
+  }
 
   useEffect(() => {
     async function load() {
@@ -205,6 +454,13 @@ export default function RoadmapPage() {
         return;
       }
       setUserId(sessionUserId);
+      const billingHeaders = await withAuthHeaders();
+      const billingRes = await fetch("/api/stripe/status", { method: "GET", headers: billingHeaders });
+      if (billingRes.ok) {
+        const billing = await billingRes.json();
+        setIsPro(Boolean(billing?.is_pro));
+        setPlanStatus(String(billing?.plan_status || "inactive"));
+      }
       const projectRes = await fetch(`/api/projects/latest?user_id=${sessionUserId}`);
       if (!projectRes.ok) {
         const data = await projectRes.json().catch(() => ({}));
@@ -224,6 +480,7 @@ export default function RoadmapPage() {
         setOnboarding(onboardingData || null);
       }
       await refresh(project.id);
+      await refreshValidation(project.id);
     }
     load();
   }, []);
@@ -265,26 +522,49 @@ export default function RoadmapPage() {
   }
 
   async function toggleTask(stageRowId: string, taskId: string, completed: boolean) {
-    await fetch("/api/progress/completeTask", {
+    const res = await fetch("/api/progress/completeTask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ stage_row_id: stageRowId, task_id: taskId, project_id: projectId, completed })
     });
+    const payload = await res.json().catch(() => ({}));
+    if (payload?.unlock_blocked) {
+      const missing = Array.isArray(payload?.validation_gate?.missing_requirements)
+        ? payload.validation_gate.missing_requirements.join(" ")
+        : "Complete validation milestone requirements.";
+      setError(`Validation gate active. ${missing}`);
+      if (payload?.validation_gate) setValidationGate(payload.validation_gate);
+    } else {
+      setError("");
+    }
     await refresh(projectId);
+    await refreshValidation(projectId);
   }
 
   async function regenerate() {
+    if (!isPro) {
+      setError("LaunchLab Pro is required to regenerate roadmap.");
+      window.location.href = "/upgrade";
+      return;
+    }
     if (!projectId && !userId) {
       setError("Missing user session. Please log in again.");
       return;
     }
     setLoading(true);
     setError("");
+    const headers = await withAuthHeaders({ "Content-Type": "application/json" });
     const res = await fetch("/api/generate/roadmap", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ project_id: projectId || null, user_id: userId || null })
     });
+    if (res.status === 402) {
+      setError("LaunchLab Pro is required to regenerate roadmap.");
+      window.location.href = "/upgrade";
+      setLoading(false);
+      return;
+    }
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       setError(data?.error || "Failed to regenerate roadmap");
@@ -384,6 +664,9 @@ export default function RoadmapPage() {
   const tailoredSteps = activeTask ? buildTailoredSteps(activeTask, projectProfile, onboarding) : [];
   const taskOutcome = activeTask ? buildTaskOutcome(activeTask, projectProfile, onboarding) : null;
   const suggestedTools = activeTask ? buildToolSuggestions(activeTask, projectProfile, onboarding) : [];
+  const platformLinks = activeTask ? getPlatformLinks(activeTask, suggestedTools) : [];
+  const taskVideos = activeTask ? getTaskVideos(activeTask, platformLinks) : [];
+  const executionChecklist = activeTask ? buildExecutionChecklist(activeTask, projectProfile) : [];
 
   return (
     <div className="os-page space-y-6">
@@ -398,9 +681,18 @@ export default function RoadmapPage() {
             </p>
           </div>
           <button className="px-5 py-2.5 rounded-full bg-ink text-white text-sm" onClick={regenerate} disabled={loading}>
-            {loading ? "Regenerating…" : "Regenerate roadmap"}
+            {loading ? "Regenerating…" : isPro ? "Regenerate roadmap" : "Upgrade for AI regenerate"}
           </button>
         </div>
+
+        {!isPro && (
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            AI roadmap regeneration is a Pro feature. Current plan status: {planStatus}.
+            <a href="/upgrade" className="ml-2 underline font-medium">
+              Upgrade now
+            </a>
+          </div>
+        )}
 
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
           <div className="rounded-2xl border border-black/10 bg-white/80 p-4">
@@ -415,6 +707,43 @@ export default function RoadmapPage() {
             <p className="text-xs uppercase tracking-[0.2em] text-black/45">Next queue</p>
             <p className="mt-2 text-3xl font-semibold">{nextQueue.length}</p>
           </div>
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-black/10 bg-white/82 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs uppercase tracking-[0.24em] text-black/45">Validation Milestone Gate</p>
+            <span
+              className={`px-3 py-1 rounded-full text-[11px] uppercase tracking-[0.18em] ${
+                validationGate?.milestone_ready ? "bg-emerald-600 text-white" : "bg-amber-100 text-amber-900"
+              }`}
+            >
+              {validationGate?.milestone_ready ? "Passed" : "Locked"}
+            </span>
+          </div>
+          <p className="mt-2 text-sm text-black/72">
+            {validationGate?.gating_note ||
+              "Build/launch stages unlock after 5 interviews, 1 survey, and 20 waitlist signups."}
+          </p>
+          <p className="mt-2 text-xs text-black/58">
+            Interviews {validationGate?.interviews_done || 0}/{validationGate?.interviews_target || 5} · Surveys{" "}
+            {validationGate?.surveys_done || 0}/{validationGate?.surveys_target || 1} · Waitlist{" "}
+            {validationGate?.waitlist_count || 0}/{validationGate?.waitlist_target || 20}
+          </p>
+          {validationGate && validationGate.missing_requirements.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {validationGate.missing_requirements.map((item) => (
+                <span key={item} className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs text-amber-900">
+                  {item}
+                </span>
+              ))}
+            </div>
+          )}
+          <a
+            href="/validation"
+            className="mt-3 inline-flex px-4 py-2 rounded-full border border-black/12 bg-white text-xs uppercase tracking-[0.18em] text-black/70"
+          >
+            Open validation trackers
+          </a>
         </div>
 
         <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto_auto_auto]">
@@ -473,6 +802,8 @@ export default function RoadmapPage() {
               const total = (stage.tasks || []).length;
               const done = (stage.tasks || []).filter((task) => task.completed).length;
               const pct = total ? Math.round((done / total) * 100) : 0;
+              const narrative = buildStageNarrative(stage, projectProfile, onboarding);
+              const stageResources = getStageResources(stage);
               return (
                 <div key={stage.id} className={`card p-6 ${!stage.unlocked ? "opacity-60" : ""}`}>
                   <div className="flex items-center justify-between gap-3">
@@ -502,6 +833,30 @@ export default function RoadmapPage() {
                     <span className="block h-full bg-black" style={{ width: `${pct}%` }} />
                   </div>
                   <p className="mt-2 text-xs text-black/55">{pct}% complete in filtered view</p>
+
+                  <div className="mt-4 rounded-xl border border-black/10 bg-white/82 p-3">
+                    <p className="text-[11px] uppercase tracking-[0.2em] text-black/45">Stage mission</p>
+                    <p className="mt-1 text-sm text-black/75">{narrative.mission}</p>
+                    <p className="mt-1 text-xs text-black/58">{narrative.status}</p>
+                    <p className="mt-2 text-xs text-black/65">
+                      <span className="font-semibold text-black/72">Next focus:</span> {narrative.nextAction}
+                    </p>
+                    {stageResources.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {stageResources.map((resource) => (
+                          <a
+                            key={`${stage.id}-${resource.url}`}
+                            href={resource.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded-full border border-black/12 bg-white px-3 py-1.5 text-[11px] text-black/72 hover:bg-black hover:text-white transition"
+                          >
+                            {resource.title}
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
 
                   {!collapsed && (
                     <div className="mt-4 grid gap-3">
@@ -631,6 +986,17 @@ export default function RoadmapPage() {
                   </ol>
                 </div>
 
+                <div className="rounded-2xl border border-black/10 bg-white/80 p-4">
+                  <p className="text-xs uppercase tracking-[0.2em] text-black/45">Execution checklist</p>
+                  <div className="mt-3 space-y-2">
+                    {executionChecklist.map((item) => (
+                      <div key={item} className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm text-black/78">
+                        {item}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
                 {taskOutcome && (
                   <div className="rounded-2xl border border-black/10 bg-white/80 p-4">
                     <p className="text-xs uppercase tracking-[0.2em] text-black/45">Success criteria</p>
@@ -660,6 +1026,50 @@ export default function RoadmapPage() {
                     <p className="mt-3 text-xs text-black/60">
                       <span className="font-semibold text-black/75">Roadmap tools:</span> {activeTask.tools}
                     </p>
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-black/10 bg-white/80 p-4">
+                  <p className="text-xs uppercase tracking-[0.2em] text-black/45">Platform links (docs + tutorials)</p>
+                  {platformLinks.length === 0 ? (
+                    <p className="mt-3 text-sm text-black/60">No platform links mapped for this task yet.</p>
+                  ) : (
+                    <div className="mt-3 grid gap-3">
+                      {platformLinks.map((platform) => (
+                        <div key={platform.tool} className="rounded-xl border border-black/10 bg-white px-3 py-3">
+                          <p className="text-sm font-semibold">{platform.tool}</p>
+                          <p className="mt-1 text-xs text-black/62">{platform.description}</p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <a
+                              href={platform.website_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="rounded-full border border-black/12 bg-white px-3 py-1 text-[11px] text-black/75 hover:bg-black hover:text-white transition"
+                            >
+                              Platform
+                            </a>
+                            <a
+                              href={platform.docs_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="rounded-full border border-black/12 bg-white px-3 py-1 text-[11px] text-black/75 hover:bg-black hover:text-white transition"
+                            >
+                              Docs
+                            </a>
+                            {platform.video_url && (
+                              <a
+                                href={platform.video_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="rounded-full border border-black/12 bg-white px-3 py-1 text-[11px] text-black/75 hover:bg-black hover:text-white transition"
+                              >
+                                Video
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
 
@@ -700,11 +1110,33 @@ export default function RoadmapPage() {
                 </div>
 
                 <div className="rounded-2xl border border-black/10 bg-white/80 p-4">
-                  <p className="text-xs uppercase tracking-[0.2em] text-black/45">Resources and videos</p>
+                  <p className="text-xs uppercase tracking-[0.2em] text-black/45">Recommended videos</p>
+                  {taskVideos.length === 0 ? (
+                    <p className="mt-3 text-sm text-black/60">No videos mapped yet for this task.</p>
+                  ) : (
+                    <div className="mt-3 grid gap-2">
+                      {taskVideos.map((resource) => (
+                        <a
+                          key={resource.url}
+                          href={resource.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm hover:bg-black hover:text-white transition"
+                        >
+                          <span className="text-[11px] uppercase tracking-[0.2em] opacity-70">{resource.type}</span>
+                          <p className="mt-1">{resource.title}</p>
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-black/10 bg-white/80 p-4">
+                  <p className="text-xs uppercase tracking-[0.2em] text-black/45">Guides and templates</p>
                   <div className="mt-3 grid gap-2">
                     {activeResources.map((resource) => (
                       <a
-                        key={resource.url}
+                        key={`guide-${resource.url}`}
                         href={resource.url}
                         target="_blank"
                         rel="noreferrer"

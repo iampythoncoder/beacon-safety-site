@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../../lib/supabaseClient";
+import { withAuthHeaders } from "../../../lib/authFetch";
 
 type Pitch = {
   id: string;
@@ -132,12 +133,15 @@ export default function PitchesPage() {
 
       const best = data?.[0];
       if (best) {
+        const headers = await withAuthHeaders({ "Content-Type": "application/json" });
         const reasonRes = await fetch("/api/groq/best-match", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify({ project, match: best, type: "pitch" })
         });
-        if (reasonRes.ok) {
+        if (reasonRes.status === 402) {
+          setBestReason("Upgrade to LaunchLab Pro to unlock AI best-match reasoning.");
+        } else if (reasonRes.ok) {
           const reason = await reasonRes.json();
           setBestReason(reason.reasoning || "");
         }
