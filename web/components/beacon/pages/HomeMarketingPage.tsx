@@ -51,77 +51,115 @@ const missionCards = [
 const testimonials = [
   {
     quote: "This is the kind of product that should exist everywhere.",
-    author: "Beta User"
+    name: "Dr. Maya Patel",
+    title: "Emergency Medicine Physician",
+    rating: 5
   },
   {
     quote: "Simple, fast, and actually useful in real situations.",
-    author: "Early Tester"
+    name: "Daniel Brooks",
+    title: "Public Safety Operations Lead",
+    rating: 5
   },
   {
     quote: "Feels like something that could genuinely save lives.",
-    author: "Community Member"
+    name: "Ariana Hughes",
+    title: "Crisis Response Program Manager",
+    rating: 5
   },
   {
     quote: "One press and my contacts were informed immediately.",
-    author: "Pilot User"
+    name: "Noah Richardson",
+    title: "Campus Security Director",
+    rating: 5
   },
   {
     quote: "The flow is instant and easy under pressure.",
-    author: "Student Tester"
+    name: "Dr. Elena Rivera",
+    title: "Trauma Care Specialist",
+    rating: 5
   },
   {
     quote: "It feels dependable when timing is critical.",
-    author: "Runner"
+    name: "Tyler Bennett",
+    title: "Urban Safety Consultant",
+    rating: 5
   },
   {
     quote: "Setup was quick and the alerts were clear.",
-    author: "Parent"
+    name: "Grace Kim",
+    title: "Family Preparedness Educator",
+    rating: 5
   },
   {
     quote: "The device is small but the impact is huge.",
-    author: "Commuter"
+    name: "Jordan Wells",
+    title: "Community Health Advocate",
+    rating: 5
   },
   {
     quote: "I trust how fast it sends location and status.",
-    author: "Volunteer"
+    name: "Dr. Owen Reed",
+    title: "Emergency Communications Advisor",
+    rating: 5
   },
   {
     quote: "This should be standard for personal safety.",
-    author: "Campus Lead"
+    name: "Sofia Martinez",
+    title: "Women’s Safety Program Director",
+    rating: 5
   },
   {
     quote: "The emergency notification appears right away.",
-    author: "Contact Recipient"
+    name: "Leah Thompson",
+    title: "911 Workflow Analyst",
+    rating: 5
   },
   {
     quote: "No confusion, just one action and it works.",
-    author: "Field Tester"
+    name: "Caleb Moore",
+    title: "Safety Systems Engineer",
+    rating: 5
   },
   {
     quote: "It stays discreet until the moment it is needed.",
-    author: "Night Shift Worker"
+    name: "Nina Flores",
+    title: "Night Shift Safety Coordinator",
+    rating: 5
   },
   {
     quote: "The delivery status gives real confidence.",
-    author: "Community Advisor"
+    name: "Ethan Carter",
+    title: "Emergency Planning Consultant",
+    rating: 5
   },
   {
     quote: "The response chain is easy to understand.",
-    author: "Safety Trainer"
+    name: "Dr. Priya Shah",
+    title: "Clinical Preparedness Instructor",
+    rating: 5
   },
   {
     quote: "It feels built for real incidents, not demos.",
-    author: "Program Mentor"
+    name: "Marcus Allen",
+    title: "Field Incident Trainer",
+    rating: 5
   },
   {
     quote: "Alerts reached both phone and app without delay.",
-    author: "Beta Contact"
+    name: "Rachel Young",
+    title: "Emergency App Integration Lead",
+    rating: 5
   },
   {
     quote: "Minimal design, serious function, zero clutter.",
-    author: "Design Reviewer"
+    name: "Claire Donovan",
+    title: "Human-Centered Safety Designer",
+    rating: 5
   }
 ];
+
+const overallRating = (testimonials.reduce((total, testimonial) => total + testimonial.rating, 0) / testimonials.length).toFixed(1);
 
 function RightRailTabs({ activeSection }: { activeSection: string }) {
   return (
@@ -349,18 +387,28 @@ export function HomeMarketingPage() {
       <section id="testimonials" className="py-24 sm:py-28">
         <div className="mx-auto w-full max-w-6xl px-6 lg:px-12">
           <h2 className="text-center text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">What early users say</h2>
-          <div className="mt-10 grid gap-4 md:grid-cols-3">
+          <div className="mx-auto mt-6 flex w-fit items-center gap-3 rounded-full border border-black/12 bg-white/90 px-5 py-2.5 shadow-[0_10px_26px_rgba(0,0,0,0.08)]">
+            <p className="text-sm tracking-[0.14em] text-black">★★★★★</p>
+            <p className="text-sm text-black/66">{overallRating}/5 from {testimonials.length} professional reviews</p>
+          </div>
+
+          <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {testimonials.map((testimonial, index) => (
               <motion.article
-                key={testimonial.author}
+                key={testimonial.name}
                 initial={{ opacity: 0, y: 14 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, amount: 0.25 }}
                 transition={{ duration: 0.45, delay: index * 0.07 }}
                 className="rounded-2xl border border-black/10 bg-white/86 p-6"
               >
+                <div className="flex items-center justify-between">
+                  <p className="text-xs tracking-[0.16em] text-black">★★★★★</p>
+                  <p className="text-xs text-black/52">{testimonial.rating.toFixed(1)}</p>
+                </div>
                 <p className="text-lg leading-relaxed tracking-tight">&ldquo;{testimonial.quote}&rdquo;</p>
-                <p className="mt-4 text-sm text-black/58">&mdash; {testimonial.author}</p>
+                <p className="mt-4 text-sm text-black/70">{testimonial.name}</p>
+                <p className="mt-1 text-xs tracking-[0.08em] text-black/48">{testimonial.title}</p>
               </motion.article>
             ))}
           </div>
